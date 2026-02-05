@@ -33,6 +33,12 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from .hierarchical_rewards_v3 import batch_hierarchical_reward, hierarchical_reward
 
+# Import tool calling rewards (auto-registers via decorators)
+try:
+    from . import tool_calling_reward
+except ImportError:
+    logger.warning("Tool calling rewards not available")
+
 # --- Soft Dependencies Configuration ---
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
