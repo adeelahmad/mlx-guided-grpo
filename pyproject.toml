@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlx-guided-grpo"
+version = "2.1.0"
+description = "Guided Group Relative Policy Optimization (GRPO) training for MLX on Apple Silicon"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Adeel Ahmad", email = "adeel@adeelahmad.net"},
+]
+keywords = ["mlx", "grpo", "rlhf", "fine-tuning", "apple-silicon", "lora", "dora", "curriculum-learning"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "mlx>=0.5.0",
+    "mlx-lm>=0.10.0",
+    "numpy>=1.24.0",
+    "transformers>=4.35.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=23.0",
+    "isort>=5.12",
+]
+wandb = [
+    "wandb>=0.15.0",
+]
+sklearn = [
+    "scikit-learn>=1.3.0",
+]
+all = [
+    "wandb>=0.15.0",
+    "scikit-learn>=1.3.0",
+]
+
+[project.scripts]
+mlx-grpo = "mlx_grpo.train:main"
+
+[project.urls]
+Homepage = "https://github.com/adeelahmad/mlx-guided-grpo"
+Documentation = "https://github.com/adeelahmad/mlx-guided-grpo#readme"
+Repository = "https://github.com/adeelahmad/mlx-guided-grpo"
+Changelog = "https://github.com/adeelahmad/mlx-guided-grpo/blob/main/CHANGELOG.md"
+Issues = "https://github.com/adeelahmad/mlx-guided-grpo/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mlx_grpo*"]
+
+[tool.setuptools.package-data]
+mlx_grpo = ["py.typed", "trainer/*.md"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+
+[tool.isort]
+profile = "black"
+line_length = 100
