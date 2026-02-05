@@ -9,19 +9,19 @@ The final tier focusing on:
 - Consistency in style
 """
 
-import re
 import math
-from typing import Dict, Any, Optional, List, Tuple
+import re
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.base import ComponentResult, RewardResult
 from ..core.config import RewardConfig
-from ..utils.text_processing import (
-    normalize_text,
-    extract_sections,
-    count_tokens_approx,
-)
 from ..utils.information_theory import calculate_entropy as char_entropy
+from ..utils.text_processing import (
+    count_tokens_approx,
+    extract_sections,
+    normalize_text,
+)
 
 
 @dataclass
@@ -42,9 +42,7 @@ class PolishMetrics:
     capitalization_errors: int = 0
 
 
-def compute_format_score(
-    response: str, config: RewardConfig
-) -> Tuple[float, Dict[str, Any]]:
+def compute_format_score(response: str, config: RewardConfig) -> Tuple[float, Dict[str, Any]]:
     """
     Evaluate format adherence and structural cleanliness.
 
@@ -76,9 +74,7 @@ def compute_format_score(
     # Calculate tag balance score
     all_tags = set(open_counts.keys()) | set(close_counts.keys())
     if all_tags:
-        balanced = sum(
-            1 for t in all_tags if open_counts.get(t, 0) == close_counts.get(t, 0)
-        )
+        balanced = sum(1 for t in all_tags if open_counts.get(t, 0) == close_counts.get(t, 0))
         tag_balance = balanced / len(all_tags)
     else:
         tag_balance = 1.0  # No tags is fine
@@ -137,9 +133,7 @@ def compute_format_score(
     return final_score, details
 
 
-def compute_readability_score(
-    response: str, config: RewardConfig
-) -> Tuple[float, Dict[str, Any]]:
+def compute_readability_score(response: str, config: RewardConfig) -> Tuple[float, Dict[str, Any]]:
     """
     Evaluate readability and clarity.
 
@@ -178,9 +172,7 @@ def compute_readability_score(
 
         # Variance: too uniform is robotic, too varied is chaotic
         if len(sentence_lengths) > 1:
-            variance = sum((l - avg_length) ** 2 for l in sentence_lengths) / len(
-                sentence_lengths
-            )
+            variance = sum((l - avg_length) ** 2 for l in sentence_lengths) / len(sentence_lengths)
             std_dev = math.sqrt(variance)
             # Optimal std_dev around 5-10
             if 5 <= std_dev <= 10:
@@ -330,9 +322,7 @@ def compute_length_efficiency(
     else:
         balance_score = 0.3
 
-    details["think_answer_ratio"] = (
-        think_tokens / answer_tokens if answer_tokens > 0 else 0
-    )
+    details["think_answer_ratio"] = think_tokens / answer_tokens if answer_tokens > 0 else 0
     details["balance_score"] = balance_score
 
     # 3. Information density check (via entropy)
@@ -358,9 +348,7 @@ def compute_length_efficiency(
     return final_score, details
 
 
-def compute_consistency_score(
-    response: str, config: RewardConfig
-) -> Tuple[float, Dict[str, Any]]:
+def compute_consistency_score(response: str, config: RewardConfig) -> Tuple[float, Dict[str, Any]]:
     """
     Evaluate consistency in style and tone throughout response.
 
@@ -412,9 +400,7 @@ def compute_consistency_score(
     contraction_count = sum(1 for c in contractions if c in text_lower)
 
     # First-person indicators
-    first_person = (
-        text_lower.count(" i ") + text_lower.count("i ") + text_lower.count(" my ")
-    )
+    first_person = text_lower.count(" i ") + text_lower.count("i ") + text_lower.count(" my ")
 
     # Formal indicators
     formal_words = [
@@ -464,9 +450,7 @@ def compute_consistency_score(
     return final_score, details
 
 
-def compute_presentation_score(
-    response: str, config: RewardConfig
-) -> Tuple[float, Dict[str, Any]]:
+def compute_presentation_score(response: str, config: RewardConfig) -> Tuple[float, Dict[str, Any]]:
     """
     Evaluate overall presentation quality.
 
@@ -593,9 +577,7 @@ def compute_polish_reward(
 
     # 3. Length efficiency
     max_tokens = kwargs.get("max_tokens", 450)
-    efficiency_score, efficiency_details = compute_length_efficiency(
-        response, config, max_tokens
-    )
+    efficiency_score, efficiency_details = compute_length_efficiency(response, config, max_tokens)
     components.append(
         ComponentResult(
             name="length_efficiency",
@@ -619,9 +601,7 @@ def compute_polish_reward(
     )
 
     # 5. Presentation
-    presentation_score, presentation_details = compute_presentation_score(
-        response, config
-    )
+    presentation_score, presentation_details = compute_presentation_score(response, config)
     components.append(
         ComponentResult(
             name="presentation",
@@ -635,9 +615,7 @@ def compute_polish_reward(
     # Compute weighted total
     total_weight = sum(c.weight for c in components)
     final_score = (
-        sum(c.raw_score * c.weight for c in components) / total_weight
-        if total_weight > 0
-        else 0.5
+        sum(c.raw_score * c.weight for c in components) / total_weight if total_weight > 0 else 0.5
     )
 
     # Collect detailed metrics
@@ -650,8 +628,11 @@ def compute_polish_reward(
     )
 
     # Define simple result class for inter-level communication
-    from dataclasses import dataclass, field as dataclass_field
-    from typing import List as ListType, Dict as DictType, Any as AnyType
+    from dataclasses import dataclass
+    from dataclasses import field as dataclass_field
+    from typing import Any as AnyType
+    from typing import Dict as DictType
+    from typing import List as ListType
 
     @dataclass
     class SimpleRewardResult:

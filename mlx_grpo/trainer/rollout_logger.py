@@ -22,7 +22,7 @@ import logging
 import re
 import statistics
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RolloutLoggerConfig:
     """Configuration for rollout logging."""
+
     enabled: bool = True
     output_dir: Optional[str] = None
     log_every_n_steps: int = 1
@@ -50,6 +51,7 @@ class RolloutLoggerConfig:
 @dataclass
 class RolloutEntry:
     """Single rollout entry (one completion)."""
+
     iteration: int
     update: int
     group_index: int
@@ -64,19 +66,24 @@ class RolloutEntry:
     cross_sampled: bool = False
     cross_sample_source_idx: Optional[int] = None
     two_phase_recovered: bool = False  # True if completion was recovered via two-phase generation
-    scaffold_ratio: float = 0.0  # Curriculum scaffold level (0.0 = no scaffold, 1.0 = full scaffold)
+    scaffold_ratio: float = (
+        0.0  # Curriculum scaffold level (0.0 = no scaffold, 1.0 = full scaffold)
+    )
     prompt_tokens: int = 0
     completion_tokens: int = 0
     thinking_tokens: int = 0
     answer_tokens: int = 0
     timestamp: str = ""
     type_info: Optional[str] = None
-    reward_details: Optional[Dict[str, Any]] = None  # Detailed reward breakdown (e.g., exam reward components)
+    reward_details: Optional[Dict[str, Any]] = (
+        None  # Detailed reward breakdown (e.g., exam reward components)
+    )
 
 
 @dataclass
 class IterationMetrics:
     """Aggregated metrics for one iteration."""
+
     iteration: int
     update: int
     timestamp: str
@@ -156,7 +163,9 @@ class RolloutLogger:
         self._rollout_buffer = []
 
         # Curriculum progress tracking
-        self._curriculum_history: Dict[float, List[Tuple[int, float]]] = {}  # scaffold_ratio -> [(iter, reward), ...]
+        self._curriculum_history: Dict[float, List[Tuple[int, float]]] = (
+            {}
+        )  # scaffold_ratio -> [(iter, reward), ...]
         self._curriculum_file = None
 
         if config.enabled:
@@ -170,9 +179,9 @@ class RolloutLogger:
         csv_path = self.output_dir / self.config.csv_filename
         curriculum_path = self.output_dir / "curriculum_progress.jsonl"
 
-        self._jsonl_file = open(jsonl_path, 'a', encoding='utf-8')
-        self._csv_file = open(csv_path, 'a', newline='', encoding='utf-8')
-        self._curriculum_file = open(curriculum_path, 'a', encoding='utf-8')
+        self._jsonl_file = open(jsonl_path, "a", encoding="utf-8")
+        self._csv_file = open(csv_path, "a", newline="", encoding="utf-8")
+        self._curriculum_file = open(curriculum_path, "a", encoding="utf-8")
 
         if csv_path.stat().st_size == 0:
             self._csv_header_written = False
@@ -216,15 +225,23 @@ class RolloutLogger:
             self._wandb_run_id = wandb.run.id if wandb.run else None
             self._wandb_table = wandb.Table(
                 columns=[
-                    "iteration", "update", "group_index",
-                    "prompt_preview", "completion_preview",
-                    "total_reward", "advantage",
-                    "cross_sampled", "completion_tokens", "thinking_tokens",
+                    "iteration",
+                    "update",
+                    "group_index",
+                    "prompt_preview",
+                    "completion_preview",
+                    "total_reward",
+                    "advantage",
+                    "cross_sampled",
+                    "completion_tokens",
+                    "thinking_tokens",
                 ]
             )
 
             if self.config.resume_from_iteration > 0:
-                logger.info(f"WandB rollout logging resumed from iteration {self.config.resume_from_iteration}")
+                logger.info(
+                    f"WandB rollout logging resumed from iteration {self.config.resume_from_iteration}"
+                )
             else:
                 logger.info("WandB rollout logging initialized")
 
@@ -237,7 +254,7 @@ class RolloutLogger:
 
     def get_wandb_run_id(self) -> Optional[str]:
         """Get the WandB run ID for resuming later."""
-        if hasattr(self, '_wandb_run_id') and self._wandb_run_id:
+        if hasattr(self, "_wandb_run_id") and self._wandb_run_id:
             return self._wandb_run_id
         if self._wandb_run:
             return self._wandb_run.id
@@ -267,7 +284,9 @@ class RolloutLogger:
         group_size: int = 4,
         two_phase_recovered: Optional[List[bool]] = None,
         scaffold_levels: Optional[List[float]] = None,
-        reward_details: Optional[List[Optional[Dict]]] = None,  # Per-completion reward breakdown (e.g., exam details)
+        reward_details: Optional[
+            List[Optional[Dict]]
+        ] = None,  # Per-completion reward breakdown (e.g., exam details)
     ):
         """Log rollouts for one step."""
         if not self.config.enabled:
@@ -305,7 +324,7 @@ class RolloutLogger:
                 meta = cross_sample_metadata[i]
                 if meta:
                     cross_sampled = True
-                    cross_source = getattr(meta, 'paired_with_idx', None)
+                    cross_source = getattr(meta, "paired_with_idx", None)
 
             # Check if this completion used two-phase recovery
             recovered = False
@@ -335,7 +354,9 @@ class RolloutLogger:
                 prompt_index=batch_indices[i] if i < len(batch_indices) else i,
                 prompt_full=prompts[i] if i < len(prompts) else "",
                 prompt_text=prompt_texts[i] if i < len(prompt_texts) else "",
-                completion=completions[i] if self.config.log_full_completions else completions[i][:500],
+                completion=(
+                    completions[i] if self.config.log_full_completions else completions[i][:500]
+                ),
                 answer_expected=answers[i] if i < len(answers) else "",
                 rewards=rewards_dict,
                 total_reward=reward_val,
@@ -367,10 +388,7 @@ class RolloutLogger:
             self._flush_wandb_buffer()
 
     def _log_curriculum_progress(
-        self,
-        iteration: int,
-        scaffold_rewards: Dict[float, List[float]],
-        timestamp: str
+        self, iteration: int, scaffold_rewards: Dict[float, List[float]], timestamp: str
     ):
         """Log curriculum progress - per-scaffold-level reward averages."""
         if not scaffold_rewards:
@@ -411,22 +429,27 @@ class RolloutLogger:
                 no_scaffold_mean = sum(scaffold_rewards[0.0]) / len(scaffold_rewards[0.0])
                 full_scaffold_mean = sum(scaffold_rewards[1.0]) / len(scaffold_rewards[1.0])
                 progress_entry["scaffold_gap"] = full_scaffold_mean - no_scaffold_mean
-                progress_entry["learning_progress"] = no_scaffold_mean  # Key metric: how well does model do without help?
+                progress_entry["learning_progress"] = (
+                    no_scaffold_mean  # Key metric: how well does model do without help?
+                )
 
             # Lowest scaffold reward (shows if model is learning)
             min_ratio = sorted_ratios[0]
             progress_entry["min_scaffold_ratio"] = min_ratio
-            progress_entry["min_scaffold_reward"] = sum(scaffold_rewards[min_ratio]) / len(scaffold_rewards[min_ratio])
+            progress_entry["min_scaffold_reward"] = sum(scaffold_rewards[min_ratio]) / len(
+                scaffold_rewards[min_ratio]
+            )
 
         # Write to curriculum progress file
         if self._curriculum_file:
-            self._curriculum_file.write(json.dumps(progress_entry) + '\n')
+            self._curriculum_file.write(json.dumps(progress_entry) + "\n")
             self._curriculum_file.flush()
 
         # Log to wandb if available
         if self.config.log_to_wandb and self._wandb_run:
             try:
                 import wandb
+
                 wandb_dict = {"iteration": iteration}
                 for ratio_key, stats in progress_entry.get("scaffold_levels", {}).items():
                     wandb_dict[f"curriculum/scaffold_{ratio_key}/mean"] = stats["mean_reward"]
@@ -443,7 +466,7 @@ class RolloutLogger:
         """Write single entry to JSONL."""
         if self._jsonl_file:
             data = asdict(entry)
-            self._jsonl_file.write(json.dumps(data) + '\n')
+            self._jsonl_file.write(json.dumps(data) + "\n")
             self._jsonl_file.flush()
 
     def _flush_wandb_buffer(self):
@@ -458,7 +481,7 @@ class RolloutLogger:
                     entry.update,
                     entry.group_index,
                     entry.prompt_text[:200],
-                    entry.completion[:self.config.max_completion_preview_chars],
+                    entry.completion[: self.config.max_completion_preview_chars],
                     entry.total_reward,
                     entry.advantage,
                     entry.cross_sampled,
@@ -489,8 +512,8 @@ class RolloutLogger:
 
         timestamp = datetime.now().isoformat()
 
-        reward_mean = metrics.get('total_rewards_mean', 0.0)
-        reward_std = metrics.get('total_rewards_std', 0.0)
+        reward_mean = metrics.get("total_rewards_mean", 0.0)
+        reward_std = metrics.get("total_rewards_std", 0.0)
 
         reward_max = reward_mean + 2 * reward_std
         reward_min = reward_mean - 2 * reward_std
@@ -500,16 +523,16 @@ class RolloutLogger:
             if len(rollout_rewards) > 1:
                 reward_std = statistics.stdev(rollout_rewards)
 
-        kl_mean = metrics.get('kl', 0.0)
+        kl_mean = metrics.get("kl", 0.0)
 
         reward_functions = {}
         if reward_funcs:
             for func in reward_funcs:
                 func_name = func.__name__
                 reward_functions[func_name] = {
-                    'mean': metrics.get(f'{func_name}_mean', 0.0),
-                    'std': metrics.get(f'{func_name}_std', 0.0),
-                    'coverage': metrics.get(f'{func_name}_coverage', 0.0),
+                    "mean": metrics.get(f"{func_name}_mean", 0.0),
+                    "std": metrics.get(f"{func_name}_std", 0.0),
+                    "coverage": metrics.get(f"{func_name}_coverage", 0.0),
                 }
 
         cross_sampled_count = 0
@@ -552,13 +575,13 @@ class RolloutLogger:
             cross_sampled_ratio=cross_sampled_ratio,
             cross_sampled_reward_mean=cross_sampled_reward_mean,
             non_cross_sampled_reward_mean=non_cross_sampled_reward_mean,
-            avg_completion_tokens=metrics.get('average_generated_tokens', 0.0),
-            max_completion_tokens=int(metrics.get('max_generated_tokens', 0)),
-            min_completion_tokens=int(metrics.get('min_generated_tokens', 0)),
-            hit_max_tokens_ratio=metrics.get('hit_max_tokens_ratio', 0.0),
-            clip_ratio_low=metrics.get('clip_ratio_low', 0.0),
-            clip_ratio_high=metrics.get('clip_ratio_high', 0.0),
-            clip_ratio_total=metrics.get('clip_ratio_total', 0.0),
+            avg_completion_tokens=metrics.get("average_generated_tokens", 0.0),
+            max_completion_tokens=int(metrics.get("max_generated_tokens", 0)),
+            min_completion_tokens=int(metrics.get("min_generated_tokens", 0)),
+            hit_max_tokens_ratio=metrics.get("hit_max_tokens_ratio", 0.0),
+            clip_ratio_low=metrics.get("clip_ratio_low", 0.0),
+            clip_ratio_high=metrics.get("clip_ratio_high", 0.0),
+            clip_ratio_total=metrics.get("clip_ratio_total", 0.0),
         )
 
         self._write_csv(iter_metrics)
@@ -574,37 +597,37 @@ class RolloutLogger:
             return
 
         row = {
-            'iteration': metrics.iteration,
-            'update': metrics.update,
-            'timestamp': metrics.timestamp,
-            'loss': metrics.loss,
-            'learning_rate': metrics.learning_rate,
-            'memory_gb': metrics.memory_gb,
-            'tokens_per_sec': metrics.tokens_per_sec,
-            'iterations_per_sec': metrics.iterations_per_sec,
-            'reward_mean': metrics.reward_mean,
-            'reward_max': metrics.reward_max,
-            'reward_min': metrics.reward_min,
-            'reward_std': metrics.reward_std,
-            'kl_mean': metrics.kl_mean,
-            'cross_sampled_count': metrics.cross_sampled_count,
-            'cross_sampled_ratio': metrics.cross_sampled_ratio,
-            'cross_sampled_reward_mean': metrics.cross_sampled_reward_mean,
-            'non_cross_sampled_reward_mean': metrics.non_cross_sampled_reward_mean,
-            'avg_completion_tokens': metrics.avg_completion_tokens,
-            'max_completion_tokens': metrics.max_completion_tokens,
-            'min_completion_tokens': metrics.min_completion_tokens,
-            'hit_max_tokens_ratio': metrics.hit_max_tokens_ratio,
-            'clip_ratio_low': metrics.clip_ratio_low,
-            'clip_ratio_high': metrics.clip_ratio_high,
-            'clip_ratio_total': metrics.clip_ratio_total,
+            "iteration": metrics.iteration,
+            "update": metrics.update,
+            "timestamp": metrics.timestamp,
+            "loss": metrics.loss,
+            "learning_rate": metrics.learning_rate,
+            "memory_gb": metrics.memory_gb,
+            "tokens_per_sec": metrics.tokens_per_sec,
+            "iterations_per_sec": metrics.iterations_per_sec,
+            "reward_mean": metrics.reward_mean,
+            "reward_max": metrics.reward_max,
+            "reward_min": metrics.reward_min,
+            "reward_std": metrics.reward_std,
+            "kl_mean": metrics.kl_mean,
+            "cross_sampled_count": metrics.cross_sampled_count,
+            "cross_sampled_ratio": metrics.cross_sampled_ratio,
+            "cross_sampled_reward_mean": metrics.cross_sampled_reward_mean,
+            "non_cross_sampled_reward_mean": metrics.non_cross_sampled_reward_mean,
+            "avg_completion_tokens": metrics.avg_completion_tokens,
+            "max_completion_tokens": metrics.max_completion_tokens,
+            "min_completion_tokens": metrics.min_completion_tokens,
+            "hit_max_tokens_ratio": metrics.hit_max_tokens_ratio,
+            "clip_ratio_low": metrics.clip_ratio_low,
+            "clip_ratio_high": metrics.clip_ratio_high,
+            "clip_ratio_total": metrics.clip_ratio_total,
         }
 
         for func_name, func_stats in metrics.reward_functions.items():
-            clean_name = func_name.replace('_reward_func', '')
-            row[f'{clean_name}_mean'] = func_stats.get('mean', 0.0)
-            row[f'{clean_name}_std'] = func_stats.get('std', 0.0)
-            row[f'{clean_name}_coverage'] = func_stats.get('coverage', 0.0)
+            clean_name = func_name.replace("_reward_func", "")
+            row[f"{clean_name}_mean"] = func_stats.get("mean", 0.0)
+            row[f"{clean_name}_std"] = func_stats.get("std", 0.0)
+            row[f"{clean_name}_coverage"] = func_stats.get("coverage", 0.0)
 
         if not self._csv_header_written:
             self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=list(row.keys()))
@@ -625,32 +648,32 @@ class RolloutLogger:
             import wandb
 
             log_dict = {
-                'iteration': metrics.iteration,
-                'loss': metrics.loss,
-                'learning_rate': metrics.learning_rate,
-                'memory_gb': metrics.memory_gb,
-                'reward/mean': metrics.reward_mean,
-                'reward/max': metrics.reward_max,
-                'reward/min': metrics.reward_min,
-                'reward/std': metrics.reward_std,
-                'kl/mean': metrics.kl_mean,
-                'cross_sampling/count': metrics.cross_sampled_count,
-                'cross_sampling/ratio': metrics.cross_sampled_ratio,
-                'cross_sampling/reward_mean': metrics.cross_sampled_reward_mean,
-                'cross_sampling/non_cross_reward_mean': metrics.non_cross_sampled_reward_mean,
-                'generation/avg_tokens': metrics.avg_completion_tokens,
-                'generation/max_tokens': metrics.max_completion_tokens,
-                'generation/hit_limit_ratio': metrics.hit_max_tokens_ratio,
-                'clipping/low': metrics.clip_ratio_low,
-                'clipping/high': metrics.clip_ratio_high,
-                'speed/tokens_per_sec': metrics.tokens_per_sec,
-                'speed/iterations_per_sec': metrics.iterations_per_sec,
+                "iteration": metrics.iteration,
+                "loss": metrics.loss,
+                "learning_rate": metrics.learning_rate,
+                "memory_gb": metrics.memory_gb,
+                "reward/mean": metrics.reward_mean,
+                "reward/max": metrics.reward_max,
+                "reward/min": metrics.reward_min,
+                "reward/std": metrics.reward_std,
+                "kl/mean": metrics.kl_mean,
+                "cross_sampling/count": metrics.cross_sampled_count,
+                "cross_sampling/ratio": metrics.cross_sampled_ratio,
+                "cross_sampling/reward_mean": metrics.cross_sampled_reward_mean,
+                "cross_sampling/non_cross_reward_mean": metrics.non_cross_sampled_reward_mean,
+                "generation/avg_tokens": metrics.avg_completion_tokens,
+                "generation/max_tokens": metrics.max_completion_tokens,
+                "generation/hit_limit_ratio": metrics.hit_max_tokens_ratio,
+                "clipping/low": metrics.clip_ratio_low,
+                "clipping/high": metrics.clip_ratio_high,
+                "speed/tokens_per_sec": metrics.tokens_per_sec,
+                "speed/iterations_per_sec": metrics.iterations_per_sec,
             }
 
             for func_name, func_stats in metrics.reward_functions.items():
-                clean_name = func_name.replace('_reward_func', '')
-                log_dict[f'rewards/{clean_name}/mean'] = func_stats.get('mean', 0.0)
-                log_dict[f'rewards/{clean_name}/std'] = func_stats.get('std', 0.0)
+                clean_name = func_name.replace("_reward_func", "")
+                log_dict[f"rewards/{clean_name}/mean"] = func_stats.get("mean", 0.0)
+                log_dict[f"rewards/{clean_name}/std"] = func_stats.get("std", 0.0)
 
             wandb.log(log_dict, step=metrics.iteration)
 
@@ -667,6 +690,7 @@ class RolloutLogger:
 
             try:
                 import wandb
+
                 if self._wandb_table and self._wandb_run:
                     wandb.log({"rollouts_table": self._wandb_table})
 
@@ -726,8 +750,8 @@ class RolloutLogger:
             rewards = [h[1] for h in history]
 
             # Calculate trends
-            first_half = rewards[:len(rewards)//2] if len(rewards) >= 4 else rewards[:1]
-            second_half = rewards[len(rewards)//2:] if len(rewards) >= 4 else rewards[-1:]
+            first_half = rewards[: len(rewards) // 2] if len(rewards) >= 4 else rewards[:1]
+            second_half = rewards[len(rewards) // 2 :] if len(rewards) >= 4 else rewards[-1:]
 
             first_mean = sum(first_half) / len(first_half) if first_half else 0
             second_mean = sum(second_half) / len(second_half) if second_half else 0
@@ -748,17 +772,21 @@ class RolloutLogger:
         if 0.0 in self._curriculum_history and len(self._curriculum_history[0.0]) >= 2:
             no_scaffold_history = self._curriculum_history[0.0]
             rewards = [h[1] for h in no_scaffold_history]
-            first_half = rewards[:len(rewards)//2]
-            second_half = rewards[len(rewards)//2:]
+            first_half = rewards[: len(rewards) // 2]
+            second_half = rewards[len(rewards) // 2 :]
 
             summary["learning_assessment"] = {
                 "no_scaffold_initial": sum(first_half) / len(first_half) if first_half else 0,
                 "no_scaffold_final": sum(second_half) / len(second_half) if second_half else 0,
-                "no_scaffold_trend": "improving" if sum(second_half)/len(second_half) > sum(first_half)/len(first_half) else "stable_or_declining",
+                "no_scaffold_trend": (
+                    "improving"
+                    if sum(second_half) / len(second_half) > sum(first_half) / len(first_half)
+                    else "stable_or_declining"
+                ),
             }
 
         if self._curriculum_file:
-            self._curriculum_file.write(json.dumps(summary) + '\n')
+            self._curriculum_file.write(json.dumps(summary) + "\n")
             self._curriculum_file.flush()
 
         # Print summary to console
@@ -766,7 +794,9 @@ class RolloutLogger:
         logger.info("CURRICULUM LEARNING SUMMARY")
         logger.info("=" * 60)
         for ratio_key, stats in summary.get("scaffold_levels", {}).items():
-            logger.info(f"Scaffold {ratio_key}: {stats['first_reward']:.3f} -> {stats['last_reward']:.3f} (Δ={stats['improvement']:+.3f})")
+            logger.info(
+                f"Scaffold {ratio_key}: {stats['first_reward']:.3f} -> {stats['last_reward']:.3f} (Δ={stats['improvement']:+.3f})"
+            )
         if "learning_assessment" in summary:
             assessment = summary["learning_assessment"]
             logger.info(f"No-scaffold trend: {assessment['no_scaffold_trend'].upper()}")

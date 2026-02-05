@@ -12,11 +12,11 @@ Features:
     - Runtime discovery
 """
 
-import logging
 import functools
-from typing import Callable, Dict, List, Optional, Any, TypeVar, Union
-from dataclasses import dataclass, field
 import inspect
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
 
 logger = logging.getLogger(__name__)
 

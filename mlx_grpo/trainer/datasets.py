@@ -11,6 +11,7 @@ Functions:
     load_dataset: Main entry point for loading datasets
     create_dataset: Factory function for creating appropriate dataset type
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -137,9 +138,7 @@ class GRPODataset:
                 prompt_tokens = tokenizer.encode(str(item[text_completion_key]))
 
             answer_tokens = tokenizer.encode(answer_str) if answer_str else []
-            self._data.append(
-                (prompt_tokens, answer_tokens, prompt_str, answer_str, type_info)
-            )
+            self._data.append((prompt_tokens, answer_tokens, prompt_str, answer_str, type_info))
 
         if skipped_count > 0:
             logging.info(f"[GRPODataset] Skipped {skipped_count} samples without <think> tags")
@@ -274,7 +273,9 @@ def create_dataset(
             ratio=getattr(config, "cross_sampling_ratio", 0.3),
             max_history_tokens=getattr(config, "cross_sampling_max_history_tokens", 512),
             seed=getattr(config, "cross_sampling_seed", 42),
-            truncation_marker=getattr(config, "cross_sampling_truncation_marker", "\n[...truncated...]\n"),
+            truncation_marker=getattr(
+                config, "cross_sampling_truncation_marker", "\n[...truncated...]\n"
+            ),
         )
         cross_sampler = CrossSampler(cross_config, tokenizer)
         data, _ = cross_sampler.apply(
@@ -324,6 +325,7 @@ def load_local_dataset(
     Returns:
         Tuple of (train, valid, test) datasets
     """
+
     def get_cache_path(subset_name: str) -> Path:
         if cache_dir:
             cache_base = Path(cache_dir)
@@ -354,7 +356,9 @@ def load_local_dataset(
                 with open(cache_path, "rb") as f:
                     cached = pickle.load(f)
                 if cached.get("file_hash") == file_hash:
-                    logging.info(f"  Loaded {subset_name} from cache ({len(cached['data'])} samples)")
+                    logging.info(
+                        f"  Loaded {subset_name} from cache ({len(cached['data'])} samples)"
+                    )
                     return cached["data"]
                 else:
                     logging.info(f"  Cache invalidated for {subset_name} (file changed)")
@@ -400,7 +404,8 @@ def load_hf_dataset(
     Returns:
         Tuple of (train, valid, test) datasets
     """
-    from datasets import exceptions, load_dataset as hf_load
+    from datasets import exceptions
+    from datasets import load_dataset as hf_load
 
     try:
         dataset = hf_load(data_id)

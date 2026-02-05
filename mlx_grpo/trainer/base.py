@@ -11,6 +11,7 @@ Following SOLID principles:
 - Interface Segregation: Small, focused Protocol classes
 - Dependency Inversion: Higher-level modules depend on these abstractions
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -140,45 +141,29 @@ class BaseTrainingArgs:
     - Easy serialization
     """
 
-    batch_size: int = field(
-        default=4,
-        metadata={"help": "Minibatch size."}
-    )
-    iters: int = field(
-        default=100,
-        metadata={"help": "Iterations to train for."}
-    )
+    batch_size: int = field(default=4, metadata={"help": "Minibatch size."})
+    iters: int = field(default=100, metadata={"help": "Iterations to train for."})
     gradient_accumulation_steps: int = field(
-        default=1,
-        metadata={"help": "Number of gradient accumulation steps."}
+        default=1, metadata={"help": "Number of gradient accumulation steps."}
     )
     val_batches: int = field(
         default=25,
-        metadata={"help": "Number of validation batches, -1 uses entire validation set."}
+        metadata={"help": "Number of validation batches, -1 uses entire validation set."},
     )
     steps_per_report: int = field(
-        default=10,
-        metadata={"help": "Number of training steps between loss reporting."}
+        default=10, metadata={"help": "Number of training steps between loss reporting."}
     )
     steps_per_eval: int = field(
-        default=200,
-        metadata={"help": "Number of training steps between validations."}
+        default=200, metadata={"help": "Number of training steps between validations."}
     )
-    steps_per_save: int = field(
-        default=100,
-        metadata={"help": "Save the model every N steps."}
-    )
-    max_seq_length: int = field(
-        default=2048,
-        metadata={"help": "Maximum sequence length."}
-    )
+    steps_per_save: int = field(default=100, metadata={"help": "Save the model every N steps."})
+    max_seq_length: int = field(default=2048, metadata={"help": "Maximum sequence length."})
     adapter_file: str = field(
         default="adapters.safetensors",
-        metadata={"help": "Save/load path for the trained adapter weights."}
+        metadata={"help": "Save/load path for the trained adapter weights."},
     )
     grad_checkpoint: bool = field(
-        default=False,
-        metadata={"help": "Use gradient checkpointing to reduce memory use."}
+        default=False, metadata={"help": "Use gradient checkpointing to reduce memory use."}
     )
 
 
@@ -222,13 +207,7 @@ def grad_checkpoint(layer: nn.Module) -> None:
 # =============================================================================
 
 # Reward function type alias
-RewardFunc = Callable[
-    [list[str], list[str], list[str], list[str] | None],
-    list[float]
-]
+RewardFunc = Callable[[list[str], list[str], list[str], list[str] | None], list[float]]
 
 # Loss function type alias
-LossFunc = Callable[
-    [nn.Module, mx.array, mx.array],
-    tuple[mx.array, mx.array]
-]
+LossFunc = Callable[[nn.Module, mx.array, mx.array], tuple[mx.array, mx.array]]

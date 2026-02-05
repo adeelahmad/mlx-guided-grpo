@@ -9,6 +9,7 @@ SOLID Principles:
 - Single Responsibility: Only handles checkpoint file management
 - Open/Closed: Can be extended with different cleanup strategies
 """
+
 from __future__ import annotations
 
 import re
@@ -51,7 +52,7 @@ class CheckpointManager:
     """
 
     # Pattern to match checkpoint files: 0000100_adapters.safetensors
-    CHECKPOINT_PATTERN = re.compile(r'^(\d{7})_adapters\.safetensors$')
+    CHECKPOINT_PATTERN = re.compile(r"^(\d{7})_adapters\.safetensors$")
 
     def __init__(
         self,
@@ -111,15 +112,13 @@ class CheckpointManager:
 
         # Keep last N
         if self.keep_last_n > 0:
-            keep_iters.update(all_iters[-self.keep_last_n:])
+            keep_iters.update(all_iters[-self.keep_last_n :])
 
         # Keep best N by metric
         if self.keep_best_n > 0:
             # Filter checkpoints that have metric values
             with_metrics = [
-                (it, path, val)
-                for it, (path, val) in self.checkpoints.items()
-                if val is not None
+                (it, path, val) for it, (path, val) in self.checkpoints.items() if val is not None
             ]
             if with_metrics:
                 # Sort by metric
@@ -128,7 +127,7 @@ class CheckpointManager:
                     key=lambda x: x[2],  # type: ignore[arg-type]
                     reverse=self.higher_is_better,
                 )
-                best_iters = [it for it, _, _ in sorted_by_metric[:self.keep_best_n]]
+                best_iters = [it for it, _, _ in sorted_by_metric[: self.keep_best_n]]
                 keep_iters.update(best_iters)
 
         # Delete checkpoints not in keep set
@@ -166,9 +165,7 @@ class CheckpointManager:
             checkpoints have metric values.
         """
         with_metrics = [
-            (it, path, val)
-            for it, (path, val) in self.checkpoints.items()
-            if val is not None
+            (it, path, val) for it, (path, val) in self.checkpoints.items() if val is not None
         ]
         if not with_metrics:
             return None

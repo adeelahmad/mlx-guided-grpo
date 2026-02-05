@@ -9,13 +9,14 @@ SOLID Principles:
 - Single Responsibility: Only handles text generation
 - Open/Closed: Generation strategies can be extended
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import mlx.core as mx
-from mlx_lm.sample_utils import make_sampler
 from mlx_lm.generate import batch_generate
+from mlx_lm.sample_utils import make_sampler
 from tqdm import tqdm
 
 from .curriculum import (
@@ -25,6 +26,7 @@ from .curriculum import (
 
 if TYPE_CHECKING:
     from typing import Any
+
     import mlx.nn as nn
 
 __all__ = [
@@ -158,12 +160,14 @@ def generate_grpo(
             else:
                 curriculum_scaffold_levels = [0.0]
 
-        effective_cross_max = cross_sample_max_tokens if cross_sample_max_tokens is not None else max_tokens
+        effective_cross_max = (
+            cross_sample_max_tokens if cross_sample_max_tokens is not None else max_tokens
+        )
 
         # Phase 1: Generate all completions
         for i in range(0, total_samples, batch_size):
             current_batch_size = min(batch_size, total_samples - i)
-            batch_prompts = prompt_tokens[i:i + current_batch_size]
+            batch_prompts = prompt_tokens[i : i + current_batch_size]
 
             batched_prompts: list[Any] = []
             batched_indices: list[int] = []
@@ -178,7 +182,9 @@ def generate_grpo(
                 prompt_idx = i + j
                 if type_info is not None and prompt_idx < len(type_info):
                     prompt_type_info = type_info[prompt_idx]
-                    if isinstance(prompt_type_info, dict) and prompt_type_info.get("cross_sampled", False):
+                    if isinstance(prompt_type_info, dict) and prompt_type_info.get(
+                        "cross_sampled", False
+                    ):
                         batch_has_cross_sampled = True
                         break
 
@@ -210,7 +216,9 @@ def generate_grpo(
                     # Skip scaffolding for exam samples
                     if not is_exam:
                         if multi_curriculum_rollout and target:
-                            scaffold_ratio = curriculum_scaffold_levels[k % len(curriculum_scaffold_levels)]
+                            scaffold_ratio = curriculum_scaffold_levels[
+                                k % len(curriculum_scaffold_levels)
+                            ]
                             prefix_text = build_curriculum_prefix(
                                 target_completion=target,
                                 ratio=scaffold_ratio,
@@ -220,7 +228,9 @@ def generate_grpo(
                                 truncation_mode=curriculum_truncation_mode,
                                 preserve_intuition=curriculum_preserve_intuition,
                             )
-                        elif curriculum_prefixes is not None and prompt_idx < len(curriculum_prefixes):
+                        elif curriculum_prefixes is not None and prompt_idx < len(
+                            curriculum_prefixes
+                        ):
                             prefix_text = curriculum_prefixes[prompt_idx]
                             if think_end in prefix_text:
                                 scaffold_ratio = 1.0
@@ -243,7 +253,9 @@ def generate_grpo(
 
             # Sub-batch generation to avoid GPU timeout
             all_result_texts: list[str] = []
-            sub_batch_sz = generation_sub_batch_size if generation_sub_batch_size > 0 else len(batched_prompts)
+            sub_batch_sz = (
+                generation_sub_batch_size if generation_sub_batch_size > 0 else len(batched_prompts)
+            )
 
             for sub_start in range(0, len(batched_prompts), sub_batch_sz):
                 sub_end = min(sub_start + sub_batch_sz, len(batched_prompts))
@@ -292,7 +304,9 @@ def generate_grpo(
                         )
                         completion_ids = tokenizer.encode(full_completion_text)
                         if smart_truncated:
-                            tqdm.write(f"    [SMART TRUNCATE] idx={len(all_completions)}: Truncated thinking middle")
+                            tqdm.write(
+                                f"    [SMART TRUNCATE] idx={len(all_completions)}: Truncated thinking middle"
+                            )
 
                 # Truncate to max_tokens
                 if len(completion_ids) > max_tokens:
@@ -303,9 +317,9 @@ def generate_grpo(
                     end_sequence = tokenizer.encode(end_token)
                     if (
                         len(completion_ids) >= len(end_sequence)
-                        and completion_ids[-len(end_sequence):] == end_sequence
+                        and completion_ids[-len(end_sequence) :] == end_sequence
                     ):
-                        completion_ids = completion_ids[:-len(end_sequence)]
+                        completion_ids = completion_ids[: -len(end_sequence)]
 
                 completion_ids_arr = mx.array(completion_ids)
                 completion_ids_arr = mx.stop_gradient(completion_ids_arr)
@@ -340,7 +354,7 @@ def generate_grpo(
                         incomplete_injected_counts.append(injected_count)
 
             del all_result_texts
-            mx.eval(all_completions[-len(batched_prompts):])
+            mx.eval(all_completions[-len(batched_prompts) :])
             mx.clear_cache()
 
         # Phase 2: Batch continuation for incomplete outputs
@@ -375,7 +389,14 @@ def generate_grpo(
         if not all_completions:
             raise ValueError("No valid completions generated.")
 
-        return all_completions, all_completion_texts, batch_indices, two_phase_flags, all_scaffold_ratios, all_scaffold_token_counts
+        return (
+            all_completions,
+            all_completion_texts,
+            batch_indices,
+            two_phase_flags,
+            all_scaffold_ratios,
+            all_scaffold_token_counts,
+        )
     finally:
         mx.clear_cache()
         if was_training:
@@ -421,20 +442,22 @@ def _check_incomplete_completion(
         has_boxed_after_think = False
         if has_think_end:
             think_end_pos = full_completion_text.find(think_end)
-            after_think = full_completion_text[think_end_pos + len(think_end):]
-            has_boxed_after_think = '\\boxed{' in after_think
+            after_think = full_completion_text[think_end_pos + len(think_end) :]
+            has_boxed_after_think = "\\boxed{" in after_think
 
         if has_think_end and not has_boxed_after_think:
             think_end_pos = full_completion_text.find(think_end)
             injected_text = "\n\n\\boxed{"
-            fixed_prefix = full_completion_text[:think_end_pos + len(think_end)] + injected_text
+            fixed_prefix = full_completion_text[: think_end_pos + len(think_end)] + injected_text
             injected_count = len(tokenizer.encode(injected_text)) if tokenizer else 0
             return True, fixed_prefix, injected_count
 
         elif has_think_start and not has_think_end:
             think_start_pos = full_completion_text.find(think_start)
-            model_thinking = full_completion_text[think_start_pos + len(think_start):].rstrip()
-            prefix_before_think = full_completion_text[:think_start_pos] if think_start_pos > 0 else ""
+            model_thinking = full_completion_text[think_start_pos + len(think_start) :].rstrip()
+            prefix_before_think = (
+                full_completion_text[:think_start_pos] if think_start_pos > 0 else ""
+            )
 
             # Truncate thinking to leave room for closing tags (reserve ~20 tokens worth)
             # This prevents Phase 2 truncation from cutting off the tags we're adding
@@ -462,8 +485,10 @@ def _check_incomplete_completion(
 
         if force_answer:
             think_start_pos = full_completion_text.find(think_start)
-            model_thinking = full_completion_text[think_start_pos + len(think_start):].rstrip()
-            prefix_before_think = full_completion_text[:think_start_pos] if think_start_pos > 0 else ""
+            model_thinking = full_completion_text[think_start_pos + len(think_start) :].rstrip()
+            prefix_before_think = (
+                full_completion_text[:think_start_pos] if think_start_pos > 0 else ""
+            )
 
             # Truncate thinking to leave room for closing tags (reserve ~80 chars for tags)
             max_thinking_chars = max(100, len(model_thinking) - 80)
@@ -477,8 +502,10 @@ def _check_incomplete_completion(
                 target_think_end = target.find(think_end)
 
                 if target_think_start != -1 and target_think_end != -1:
-                    target_thinking = target[target_think_start + len(think_start):target_think_end]
-                    intuition_match = re.search(r'\[ANSWER INTUITION:[^\]]*\]', target_thinking)
+                    target_thinking = target[
+                        target_think_start + len(think_start) : target_think_end
+                    ]
+                    intuition_match = re.search(r"\[ANSWER INTUITION:[^\]]*\]", target_thinking)
                     if intuition_match:
                         bridge_parts.append(intuition_match.group(0))
 
@@ -499,8 +526,10 @@ def _check_incomplete_completion(
         else:
             # Natural continuation - but still close thinking properly
             think_start_pos = full_completion_text.find(think_start)
-            model_thinking = full_completion_text[think_start_pos + len(think_start):].rstrip()
-            prefix_before_think = full_completion_text[:think_start_pos] if think_start_pos > 0 else ""
+            model_thinking = full_completion_text[think_start_pos + len(think_start) :].rstrip()
+            prefix_before_think = (
+                full_completion_text[:think_start_pos] if think_start_pos > 0 else ""
+            )
 
             # Truncate thinking if too long, add brevity marker
             if len(model_thinking) > 500:
@@ -516,7 +545,7 @@ def _check_incomplete_completion(
     elif has_think_end and not has_answer_end and scaffold_ratio < 1.0:
         think_end_pos = full_completion_text.find(think_end)
         injected_text = "\n" + r"\boxed{"
-        fixed_prefix = full_completion_text[:think_end_pos + len(think_end)] + injected_text
+        fixed_prefix = full_completion_text[: think_end_pos + len(think_end)] + injected_text
         injected_count = len(tokenizer.encode(injected_text)) if tokenizer else 0
         return True, fixed_prefix, injected_count
 
@@ -626,9 +655,9 @@ def _run_phase2_continuation(
                 end_sequence = tokenizer.encode(end_token)
                 if (
                     len(completion_ids) >= len(end_sequence)
-                    and completion_ids[-len(end_sequence):] == end_sequence
+                    and completion_ids[-len(end_sequence) :] == end_sequence
                 ):
-                    completion_ids = completion_ids[:-len(end_sequence)]
+                    completion_ids = completion_ids[: -len(end_sequence)]
 
             completion_arr = mx.stop_gradient(mx.array(completion_ids))
             mx.eval(completion_arr)  # Evaluate immediately

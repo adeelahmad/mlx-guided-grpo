@@ -10,6 +10,7 @@ SOLID Principles:
 - Single Responsibility: Only handles curriculum/truncation logic
 - Open/Closed: Can be extended with new truncation strategies
 """
+
 from __future__ import annotations
 
 import re
@@ -100,8 +101,8 @@ def extract_thinking_content(
         return "", "", text
 
     pre_thinking = text[:start_idx]
-    thinking_content = text[start_idx + len(think_start):end_idx]
-    post_thinking = text[end_idx + len(think_end):]
+    thinking_content = text[start_idx + len(think_start) : end_idx]
+    post_thinking = text[end_idx + len(think_end) :]
 
     return pre_thinking, thinking_content, post_thinking
 
@@ -137,8 +138,8 @@ def truncate_thinking_by_ratio(
     if preserve_intuition:
         # Find [ANSWER INTUITION: ...] pattern
         intuition_patterns = [
-            r'\[ANSWER INTUITION:[^\]]*\]',  # [ANSWER INTUITION: xxx]
-            r'\[ANSWER INTUITION:[^\n]*',     # [ANSWER INTUITION: xxx (no closing bracket)
+            r"\[ANSWER INTUITION:[^\]]*\]",  # [ANSWER INTUITION: xxx]
+            r"\[ANSWER INTUITION:[^\n]*",  # [ANSWER INTUITION: xxx (no closing bracket)
         ]
 
         intuition_end_pos = -1
@@ -148,7 +149,7 @@ def truncate_thinking_by_ratio(
                 # Find position after the intuition block
                 end_pos = match.end()
                 # Include trailing newline if present
-                if end_pos < len(thinking_content) and thinking_content[end_pos] == '\n':
+                if end_pos < len(thinking_content) and thinking_content[end_pos] == "\n":
                     end_pos += 1
                 intuition_end_pos = max(intuition_end_pos, end_pos)
 
@@ -178,7 +179,7 @@ def _truncate_middle(
 ) -> str:
     """Truncate middle of content, keeping start and end."""
     if by_lines:
-        lines = truncatable_content.split('\n')
+        lines = truncatable_content.split("\n")
         total = len(lines)
         if total <= 2:
             return preserved_prefix + truncatable_content
@@ -198,7 +199,7 @@ def _truncate_middle(
         if end_lines:
             truncated_parts.extend(end_lines)
 
-        return preserved_prefix + '\n'.join(truncated_parts)
+        return preserved_prefix + "\n".join(truncated_parts)
     else:
         # By characters
         total = len(truncatable_content)
@@ -226,9 +227,9 @@ def _truncate_prefix(
 ) -> str:
     """Truncate from end, keeping start (prefix mode)."""
     if by_lines:
-        lines = truncatable_content.split('\n')
+        lines = truncatable_content.split("\n")
         keep_count = max(1, int(len(lines) * ratio))
-        return preserved_prefix + '\n'.join(lines[:keep_count])
+        return preserved_prefix + "\n".join(lines[:keep_count])
     else:
         keep_count = max(1, int(len(truncatable_content) * ratio))
         return preserved_prefix + truncatable_content[:keep_count]
@@ -324,21 +325,25 @@ def hierarchical_truncate_thinking(
         keep_end_ratio = keep_end_ratio / total_keep_ratio
 
     # Try Level 1: Paragraph-level truncation
-    paragraphs = thinking_content.split('\n\n')
+    paragraphs = thinking_content.split("\n\n")
     if len(paragraphs) >= 3:
         truncated = _truncate_at_level(
-            paragraphs, '\n\n', target_tokens, tokenizer,
-            keep_start_ratio, keep_end_ratio, brevity_marker
+            paragraphs,
+            "\n\n",
+            target_tokens,
+            tokenizer,
+            keep_start_ratio,
+            keep_end_ratio,
+            brevity_marker,
         )
         if truncated:
             return truncated, True
 
     # Try Level 2: Line-level truncation
-    lines = thinking_content.split('\n')
+    lines = thinking_content.split("\n")
     if len(lines) >= 3:
         truncated = _truncate_at_level(
-            lines, '\n', target_tokens, tokenizer,
-            keep_start_ratio, keep_end_ratio, brevity_marker
+            lines, "\n", target_tokens, tokenizer, keep_start_ratio, keep_end_ratio, brevity_marker
         )
         if truncated:
             return truncated, True
@@ -347,8 +352,7 @@ def hierarchical_truncate_thinking(
     words = thinking_content.split()
     if len(words) >= 3:
         truncated = _truncate_at_level(
-            words, ' ', target_tokens, tokenizer,
-            keep_start_ratio, keep_end_ratio, brevity_marker
+            words, " ", target_tokens, tokenizer, keep_start_ratio, keep_end_ratio, brevity_marker
         )
         if truncated:
             return truncated, True
@@ -428,7 +432,9 @@ def _truncate_at_level(
             # No truncation needed at this level
             candidate = join_str.join(units)
         else:
-            candidate = join_str.join(start_units) + f"\n{brevity_marker}\n" + join_str.join(end_units)
+            candidate = (
+                join_str.join(start_units) + f"\n{brevity_marker}\n" + join_str.join(end_units)
+            )
 
         token_count = len(tokenizer.encode(candidate))
 
@@ -490,7 +496,7 @@ def smart_truncate_completion(
 
     # Split into parts
     pre_think = completion_text[:start_idx]
-    thinking = completion_text[start_idx + len(think_start):end_idx]
+    thinking = completion_text[start_idx + len(think_start) : end_idx]
     post_think = completion_text[end_idx:]  # Includes </think> and answer
 
     # Count non-thinking tokens
@@ -569,8 +575,8 @@ def compute_gradient_alignment(
     grpo_flat = mx.concatenate(grpo_vec)
 
     # Compute norms
-    sft_norm = mx.sqrt(mx.sum(sft_flat ** 2))
-    grpo_norm = mx.sqrt(mx.sum(grpo_flat ** 2))
+    sft_norm = mx.sqrt(mx.sum(sft_flat**2))
+    grpo_norm = mx.sqrt(mx.sum(grpo_flat**2))
 
     # Cosine similarity
     dot_product = mx.sum(sft_flat * grpo_flat)

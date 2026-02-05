@@ -29,6 +29,7 @@ Example:
         args=GRPOTrainingArgs(...),
     )
 """
+
 from __future__ import annotations
 
 # Base module
@@ -40,51 +41,6 @@ from .base import (
     grad_checkpoint,
 )
 
-# GRPO trainer (main entry point)
-from .grpo_trainer import (
-    GRPOTrainingArgs,
-    evaluate_grpo,
-    train_grpo,
-)
-
-# GRPO modular components
-from .grpo import (
-    # Debug utilities
-    safe_eval,
-    safe_clear,
-    dbg,
-    dbg_mem,
-    mem_stats,
-    # Checkpoint management
-    CheckpointManager,
-    # Layer utilities
-    parse_layer_spec,
-    freeze_model_layers,
-    # Curriculum learning
-    compute_curriculum_ratio,
-    build_curriculum_prefix,
-    # Generation
-    generate_grpo,
-    # Loss
-    grpo_loss,
-    calculate_rewards_and_advantages,
-)
-
-# Rewards
-from .rewards import (
-    REWARD_REGISTRY,
-    RewardFunc,
-    get_defaults,
-    get_reward,
-    list_rewards,
-    register_reward,
-    reward,
-    # Backward compatibility
-    get_default_reward_functions,
-    get_reward_function,
-    list_available_reward_functions,
-)
-
 # Datasets
 from .datasets import (
     CacheDataset,
@@ -92,6 +48,44 @@ from .datasets import (
     GRPODataset,
     create_dataset,
     load_dataset,
+)
+
+# GRPO modular components
+from .grpo import (  # Debug utilities; Checkpoint management; Layer utilities; Curriculum learning; Generation; Loss
+    CheckpointManager,
+    build_curriculum_prefix,
+    calculate_rewards_and_advantages,
+    compute_curriculum_ratio,
+    dbg,
+    dbg_mem,
+    freeze_model_layers,
+    generate_grpo,
+    grpo_loss,
+    mem_stats,
+    parse_layer_spec,
+    safe_clear,
+    safe_eval,
+)
+
+# GRPO trainer (main entry point)
+from .grpo_trainer import (
+    GRPOTrainingArgs,
+    evaluate_grpo,
+    train_grpo,
+)
+
+# Rewards
+from .rewards import (  # Backward compatibility
+    REWARD_REGISTRY,
+    RewardFunc,
+    get_default_reward_functions,
+    get_defaults,
+    get_reward,
+    get_reward_function,
+    list_available_reward_functions,
+    list_rewards,
+    register_reward,
+    reward,
 )
 
 __all__ = [

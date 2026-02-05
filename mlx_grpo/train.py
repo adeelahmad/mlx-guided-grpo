@@ -9,6 +9,7 @@ Usage:
     # Or use the CLI:
     mlx-grpo --model <model> --data <data_path> [options]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -413,10 +414,16 @@ def build_parser() -> argparse.ArgumentParser:
     grpo_group.add_argument("--epsilon-high", type=float, default=None)
     grpo_group.add_argument("--temperature", type=float, default=None)
     grpo_group.add_argument("--max-completion-length", type=int, default=None)
-    grpo_group.add_argument("--generation-sub-batch-size", type=int, default=1,
-                            help="Generate this many completions at a time to avoid GPU timeout")
+    grpo_group.add_argument(
+        "--generation-sub-batch-size",
+        type=int,
+        default=1,
+        help="Generate this many completions at a time to avoid GPU timeout",
+    )
     grpo_group.add_argument("--grpo-loss-type", choices=["grpo", "bnpo", "dr_grpo"], default=None)
-    grpo_group.add_argument("--importance-sampling-level", choices=["token", "sequence"], default=None)
+    grpo_group.add_argument(
+        "--importance-sampling-level", choices=["token", "sequence"], default=None
+    )
 
     # Reward functions
     reward_group = parser.add_argument_group("Rewards")
@@ -478,8 +485,10 @@ def build_parser() -> argparse.ArgumentParser:
     twophase_group.add_argument("--think-end-token", type=str, default=None)
     twophase_group.add_argument("--continuation-tokens", type=int, default=64)
     twophase_group.add_argument(
-        "--two-phase-samples-per-group", type=int, default=2,
-        help="Max samples per group to apply two-phase recovery. -1 = all (default)."
+        "--two-phase-samples-per-group",
+        type=int,
+        default=2,
+        help="Max samples per group to apply two-phase recovery. -1 = all (default).",
     )
 
     # Curriculum scaffolding
@@ -556,7 +565,9 @@ def train_model(
     # Setup optimizer
     lr = build_schedule(args.lr_schedule) if args.lr_schedule else args.learning_rate
     optimizer_config = args.optimizer_config.get(args.optimizer.lower(), {})
-    opt_class = {"adam": optim.Adam, "adamw": optim.AdamW, "muon": optim.Muon}[args.optimizer.lower()]
+    opt_class = {"adam": optim.Adam, "adamw": optim.AdamW, "muon": optim.Muon}[
+        args.optimizer.lower()
+    ]
     optimizer = opt_class(learning_rate=lr, **optimizer_config)
 
     # Setup reward functions
@@ -837,11 +848,13 @@ def main(args: dict | argparse.Namespace | None = None) -> None:
             setattr(args, k, v)
 
     # Handle LoRA parameters from CLI
-    if any([
-        getattr(args, "lora_rank", None),
-        getattr(args, "lora_alpha", None),
-        getattr(args, "lora_dropout", None),
-    ]):
+    if any(
+        [
+            getattr(args, "lora_rank", None),
+            getattr(args, "lora_alpha", None),
+            getattr(args, "lora_dropout", None),
+        ]
+    ):
         lora_params = args.lora_parameters.copy() if hasattr(args, "lora_parameters") else {}
         if args.lora_rank is not None:
             lora_params["rank"] = args.lora_rank

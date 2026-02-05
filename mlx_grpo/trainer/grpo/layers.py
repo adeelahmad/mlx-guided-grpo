@@ -10,6 +10,7 @@ SOLID Principles:
 - Single Responsibility: Only handles layer-related operations
 - Open/Closed: Functions can be extended without modification
 """
+
 from __future__ import annotations
 
 import re
@@ -82,7 +83,7 @@ def create_layer_gradient_mask(
         Masked gradient tree with zeros for excluded layers
     """
     masked_grads: dict[str, mx.array] = {}
-    layer_pattern = re.compile(rf'{re.escape(model_prefix)}(\d+)\.')
+    layer_pattern = re.compile(rf"{re.escape(model_prefix)}(\d+)\.")
 
     for key, grad in grad_tree.items():
         match = layer_pattern.search(key)
@@ -129,7 +130,7 @@ def combine_dual_gradients(
         Combined gradient tree
     """
     combined: dict[str, mx.array] = {}
-    layer_pattern = re.compile(rf'{re.escape(model_prefix)}(\d+)\.')
+    layer_pattern = re.compile(rf"{re.escape(model_prefix)}(\d+)\.")
 
     for key in thinking_grads.keys():
         t_grad = thinking_grads[key]
@@ -222,7 +223,8 @@ def detect_thinking_answer_positions(
             if current_pos < len(text):
                 end_pos = min(current_pos + max(token_len, 1), len(text))
                 thinking_chars = sum(
-                    1 for i in range(current_pos, end_pos)
+                    1
+                    for i in range(current_pos, end_pos)
                     if i < len(char_is_thinking) and char_is_thinking[i]
                 )
                 total_chars = end_pos - current_pos
@@ -254,7 +256,7 @@ def freeze_model_layers(
         layers_to_train: Set of layer indices to keep trainable
         verbose: Whether to print freezing information
     """
-    if not hasattr(model, 'layers'):
+    if not hasattr(model, "layers"):
         if verbose:
             tqdm.write("Warning: Model doesn't have 'layers' attribute, skipping layer freezing")
         return

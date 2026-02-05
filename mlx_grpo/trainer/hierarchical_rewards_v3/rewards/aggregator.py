@@ -15,23 +15,22 @@ FIXED: batch_hierarchical_reward now correctly handles:
 """
 
 import math
-from typing import Dict, Any, Optional, List, Tuple, Callable, Union
 from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from ..core.base import (
-    RewardResult,
-    LevelResult,
-    ComponentResult,
-    DiagnosticInfo,
     AntiGamingResult,
     BatchResult,
+    ComponentResult,
+    DiagnosticInfo,
+    LevelResult,
+    RewardResult,
 )
-from ..core.config import RewardConfig, GateConfig, get_default_config
-
-from .foundation import compute_foundation_reward
+from ..core.config import GateConfig, RewardConfig, get_default_config
 from .correctness import compute_correctness_reward
-from .quality import compute_quality_reward
+from .foundation import compute_foundation_reward
 from .polish import compute_polish_reward
+from .quality import compute_quality_reward
 
 
 @dataclass
@@ -74,10 +73,8 @@ def compute_anti_gaming_penalty(
     response: str, level_results: Dict[str, LevelResult], config: RewardConfig
 ) -> "SimpleAntiGamingResult":
     """Compute anti-gaming penalties based on suspicious patterns."""
-    from ..utils.information_theory import (
-        calculate_entropy as char_entropy,
-        calculate_compression_ratio as compression_ratio,
-    )
+    from ..utils.information_theory import calculate_compression_ratio as compression_ratio
+    from ..utils.information_theory import calculate_entropy as char_entropy
     from ..utils.structural_analysis import detect_clones
     from ..utils.text_processing import compute_ngram_repetition, unique_token_ratio
 
@@ -93,7 +90,7 @@ def compute_anti_gaming_penalty(
 
     # Ensure response is a string
     if isinstance(response, list):
-        response = ' '.join(str(r) for r in response if r)
+        response = " ".join(str(r) for r in response if r)
     elif not isinstance(response, str):
         response = str(response)
 
@@ -143,12 +140,18 @@ def compute_anti_gaming_penalty(
 
     # 6. Suspicious score patterns
     foundation_default = LevelResult(
-        level="foundation", raw_score=0.5, gated_score=0.5,
-        gate_value=1.0, passed_soft_gate=True,
+        level="foundation",
+        raw_score=0.5,
+        gated_score=0.5,
+        gate_value=1.0,
+        passed_soft_gate=True,
     )
     quality_default = LevelResult(
-        level="quality", raw_score=0.5, gated_score=0.5,
-        gate_value=1.0, passed_soft_gate=True,
+        level="quality",
+        raw_score=0.5,
+        gated_score=0.5,
+        gate_value=1.0,
+        passed_soft_gate=True,
     )
     foundation_score = level_results.get("foundation", foundation_default).raw_score
     quality_score = level_results.get("quality", quality_default).raw_score
@@ -186,8 +189,7 @@ def ensure_ranking_signal(scores: List[float], min_spread: float = 0.05) -> List
         adj_max = max(adjusted)
         if adj_max > adj_min:
             adjusted = [
-                min_score + (s - adj_min) * spread / (adj_max - adj_min + 1e-8)
-                for s in adjusted
+                min_score + (s - adj_min) * spread / (adj_max - adj_min + 1e-8) for s in adjusted
             ]
         return adjusted
 
@@ -199,7 +201,7 @@ def _ensure_string(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, list):
-        return ' '.join(str(v) for v in value if v is not None)
+        return " ".join(str(v) for v in value if v is not None)
     if not isinstance(value, str):
         return str(value)
     return value
@@ -371,9 +373,12 @@ def hierarchical_reward(
                 "weight": config.level_weights[name],
                 "weighted_contribution": result.gated_score * config.level_weights[name],
                 "components": (
-                    [{"name": c.name, "score": c.raw_score, "weight": c.weight}
-                     for c in result.components.values()]
-                    if result.components else []
+                    [
+                        {"name": c.name, "score": c.raw_score, "weight": c.weight}
+                        for c in result.components.values()
+                    ]
+                    if result.components
+                    else []
                 ),
             }
             for name, result in level_results.items()
@@ -474,10 +479,7 @@ def batch_hierarchical_reward(
 
     # Compute batch statistics
     mean_score = sum(scores) / len(scores) if scores else 0
-    std_score = (
-        (sum((s - mean_score) ** 2 for s in scores) / len(scores)) ** 0.5
-        if scores else 0
-    )
+    std_score = (sum((s - mean_score) ** 2 for s in scores) / len(scores)) ** 0.5 if scores else 0
 
     @dataclass
     class SimpleBatchResult:
@@ -493,14 +495,13 @@ def batch_hierarchical_reward(
         "std": std_score,
     }
 
-    return SimpleBatchResult(
-        scores=scores, diagnostics=all_diagnostics, batch_stats=batch_stats
-    )
+    return SimpleBatchResult(scores=scores, diagnostics=all_diagnostics, batch_stats=batch_stats)
 
 
 # ============================================
 # Convenience functions
 # ============================================
+
 
 def quick_score(response: str, expected: str, question: str = "") -> float:
     """Get just the final score without diagnostics."""

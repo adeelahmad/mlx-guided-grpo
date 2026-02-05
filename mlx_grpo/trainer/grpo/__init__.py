@@ -27,7 +27,38 @@ SOLID Principles Applied:
 - Interface Segregation: Focused module APIs
 - Dependency Inversion: Modules depend on abstractions
 """
+
 from __future__ import annotations
+
+# Checkpoint management
+from .checkpoint import CheckpointManager
+
+# Configuration
+from .config import GRPOTrainingArgs
+
+# Corruption detection
+from .corruption import (
+    EXIT_CODE_CORRUPTION,
+    AdapterCorruptionError,
+    CompletionCorruptionError,
+    CorruptionError,
+    log_completion_warnings,
+    validate_adapter_weights,
+    validate_and_exit_on_corruption,
+    validate_completions,
+)
+
+# Curriculum learning
+from .curriculum import (
+    build_curriculum_prefix,
+    compute_curriculum_ratio,
+    compute_gradient_alignment,
+    extract_thinking_content,
+    hierarchical_truncate_thinking,
+    interpolate_gradients,
+    smart_truncate_completion,
+    truncate_thinking_by_ratio,
+)
 
 # Debug utilities
 from .debug import (
@@ -44,6 +75,14 @@ from .debug import (
     safe_eval,
 )
 
+# Generation
+from .generation import generate_grpo
+
+# Gradient manipulation
+from .gradients import (
+    project_gradient_toward_sft,
+)
+
 # Layer utilities
 from .layers import (
     combine_dual_gradients,
@@ -53,27 +92,6 @@ from .layers import (
     parse_layer_spec,
 )
 
-# Checkpoint management
-from .checkpoint import CheckpointManager
-
-# Configuration
-from .config import GRPOTrainingArgs
-
-# Curriculum learning
-from .curriculum import (
-    build_curriculum_prefix,
-    compute_curriculum_ratio,
-    compute_gradient_alignment,
-    extract_thinking_content,
-    hierarchical_truncate_thinking,
-    interpolate_gradients,
-    smart_truncate_completion,
-    truncate_thinking_by_ratio,
-)
-
-# Generation
-from .generation import generate_grpo
-
 # Loss computation
 from .loss import (
     calculate_rewards_and_advantages,
@@ -81,23 +99,6 @@ from .loss import (
     get_per_token_logps,
     get_per_token_logps_with_prompt_mask,
     grpo_loss,
-)
-
-# Gradient manipulation
-from .gradients import (
-    project_gradient_toward_sft,
-)
-
-# Corruption detection
-from .corruption import (
-    EXIT_CODE_CORRUPTION,
-    CorruptionError,
-    AdapterCorruptionError,
-    CompletionCorruptionError,
-    validate_adapter_weights,
-    validate_completions,
-    validate_and_exit_on_corruption,
-    log_completion_warnings,
 )
 
 __all__ = [

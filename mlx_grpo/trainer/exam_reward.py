@@ -79,18 +79,17 @@ Or reconfigure after import:
     reconfigure_structured_logging()
 """
 
+import json
+import logging
+import math
 import os
 import re
 import sys
-import math
-import json
-import logging
 from collections import Counter  # FIX #7: Moved from inside loop to top level
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional, Any, Union
 from dataclasses import dataclass, field
+from datetime import datetime
 from fractions import Fraction
-
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 # =============================================================================
 # Pre-compiled Patterns (FIX #8: Compile regex patterns at module level)
@@ -98,17 +97,22 @@ from fractions import Fraction
 
 # Hedging patterns for gaming detection
 _HEDGING_PATTERNS = [
-    re.compile(r'\b[A-D]\s+(or|and)\s+[A-D]\b', re.IGNORECASE),  # "A or B"
-    re.compile(r'\b[A-D]\s*/\s*[A-D]\b', re.IGNORECASE),  # "A/B"
-    re.compile(r'\b[A-D]\s*,\s*[A-D]\b', re.IGNORECASE),  # "A, B"
-    re.compile(r'\b(either|both)\b', re.IGNORECASE),  # "either" or "both"
-    re.compile(r'\b[A-D]\s+or\s+[A-D]\s+or\s+[A-D]\b', re.IGNORECASE),  # "A or B or C"
+    re.compile(r"\b[A-D]\s+(or|and)\s+[A-D]\b", re.IGNORECASE),  # "A or B"
+    re.compile(r"\b[A-D]\s*/\s*[A-D]\b", re.IGNORECASE),  # "A/B"
+    re.compile(r"\b[A-D]\s*,\s*[A-D]\b", re.IGNORECASE),  # "A, B"
+    re.compile(r"\b(either|both)\b", re.IGNORECASE),  # "either" or "both"
+    re.compile(r"\b[A-D]\s+or\s+[A-D]\s+or\s+[A-D]\b", re.IGNORECASE),  # "A or B or C"
 ]
 
 # Strong conclusion patterns for inconsistency detection
 _STRONG_CONCLUSION_PATTERNS = [
-    re.compile(r'(the\s+answer\s+is|correct\s+answer\s+is|therefore|thus|hence|so\s+the\s+answer)\s+["\']?([A-D])["\']?', re.IGNORECASE),
-    re.compile(r'([A-D])\s+(is\s+correct|is\s+the\s+(right|correct)\s+(answer|choice))', re.IGNORECASE),
+    re.compile(
+        r'(the\s+answer\s+is|correct\s+answer\s+is|therefore|thus|hence|so\s+the\s+answer)\s+["\']?([A-D])["\']?',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"([A-D])\s+(is\s+correct|is\s+the\s+(right|correct)\s+(answer|choice))", re.IGNORECASE
+    ),
 ]
 
 
@@ -145,7 +149,9 @@ class StructuredRewardLogger:
     def __init__(self):
         # FIX #2: Consistent defaults - use same default everywhere
         self.log_file = os.environ.get("EXAM_REWARD_STRUCTURED_LOG", _DEFAULT_STRUCTURED_LOG_FILE)
-        self.log_console = os.environ.get("EXAM_REWARD_STRUCTURED_CONSOLE", "false").lower() == "true"
+        self.log_console = (
+            os.environ.get("EXAM_REWARD_STRUCTURED_CONSOLE", "false").lower() == "true"
+        )
         self.enabled = bool(self.log_file) or self.log_console
         self._file_handle = None
         self._sample_counter = 0
@@ -162,9 +168,11 @@ class StructuredRewardLogger:
                 log_dir = os.path.dirname(self.log_file)
                 if log_dir and not os.path.exists(log_dir):
                     os.makedirs(log_dir, exist_ok=True)
-                self._file_handle = open(self.log_file, 'a', encoding='utf-8')
+                self._file_handle = open(self.log_file, "a", encoding="utf-8")
             except (IOError, OSError) as e:
-                sys.stderr.write(f"Warning: Could not open structured log file {self.log_file}: {e}\n")
+                sys.stderr.write(
+                    f"Warning: Could not open structured log file {self.log_file}: {e}\n"
+                )
                 self.log_file = ""
 
     def _write(self, entry: Dict[str, Any]):
@@ -191,9 +199,9 @@ class StructuredRewardLogger:
         prompt_text: str,
         details: Dict[str, Any],
         final_reward: float,
-        weights: 'RewardWeights',
+        weights: "RewardWeights",
         iteration: Optional[int] = None,
-        sample_id: Optional[int] = None
+        sample_id: Optional[int] = None,
     ):
         """
         Log a single reward computation with full details.
@@ -212,21 +220,21 @@ class StructuredRewardLogger:
         self._sample_counter += 1
 
         # Extract key info from details
-        accuracy_info = details.get('accuracy', {})
-        format_info = details.get('format', {})
-        boxed_info = details.get('boxed', {})
-        reasoning_info = details.get('reasoning', {})
-        gaming_info = details.get('gaming_penalty', {})
-        penalties_info = details.get('penalties', {})
+        accuracy_info = details.get("accuracy", {})
+        format_info = details.get("format", {})
+        boxed_info = details.get("boxed", {})
+        reasoning_info = details.get("reasoning", {})
+        gaming_info = details.get("gaming_penalty", {})
+        penalties_info = details.get("penalties", {})
 
         # Get nested details safely
-        acc_details = accuracy_info.get('details', {}) if isinstance(accuracy_info, dict) else {}
-        box_details = boxed_info.get('details', {}) if isinstance(boxed_info, dict) else {}
-        fmt_details = format_info.get('details', {}) if isinstance(format_info, dict) else {}
-        reas_details = reasoning_info.get('details', {}) if isinstance(reasoning_info, dict) else {}
+        acc_details = accuracy_info.get("details", {}) if isinstance(accuracy_info, dict) else {}
+        box_details = boxed_info.get("details", {}) if isinstance(boxed_info, dict) else {}
+        fmt_details = format_info.get("details", {}) if isinstance(format_info, dict) else {}
+        reas_details = reasoning_info.get("details", {}) if isinstance(reasoning_info, dict) else {}
 
         # Gaming breakdown
-        gaming_breakdown = gaming_info.get('breakdown', {}) if isinstance(gaming_info, dict) else {}
+        gaming_breakdown = gaming_info.get("breakdown", {}) if isinstance(gaming_info, dict) else {}
         gaming_patterns = [k for k, v in gaming_breakdown.items() if v > 0]
 
         entry = {
@@ -234,86 +242,99 @@ class StructuredRewardLogger:
             "event": "reward_computed",
             "sample_id": sample_id if sample_id is not None else self._sample_counter,
             "iteration": iteration,
-
             # === INPUT ===
             "input": {
                 "completion": completion[:500] + "..." if len(completion) > 500 else completion,
                 "completion_len": len(completion),
                 "ground_truth": str(ground_truth) if ground_truth is not None else None,
                 "possible_answers": [str(a) for a in (possible_answers or [])],
-                "prompt": prompt_text[:300] + "..." if len(prompt_text) > 300 else prompt_text if prompt_text else None
+                "prompt": (
+                    prompt_text[:300] + "..."
+                    if len(prompt_text) > 300
+                    else prompt_text if prompt_text else None
+                ),
             },
-
             # === EXTRACTION ===
             "extraction": {
-                "model_answer": acc_details.get('model_answer'),
-                "matched_answer": acc_details.get('matched_answer'),
-                "match_type": acc_details.get('match_type'),
-                "has_boxed": box_details.get('has_boxed', False),
-                "has_think_tags": fmt_details.get('has_think_tags', False),
-                "thinking_words": reas_details.get('thinking_words', 0),
-                "answer_words": reas_details.get('answer_words', 0)
+                "model_answer": acc_details.get("model_answer"),
+                "matched_answer": acc_details.get("matched_answer"),
+                "match_type": acc_details.get("match_type"),
+                "has_boxed": box_details.get("has_boxed", False),
+                "has_think_tags": fmt_details.get("has_think_tags", False),
+                "thinking_words": reas_details.get("thinking_words", 0),
+                "answer_words": reas_details.get("answer_words", 0),
             },
-
             # === COMPONENT SCORES ===
             "components": {
                 "accuracy": {
-                    "score": accuracy_info.get('original_score', 0) if isinstance(accuracy_info, dict) else 0,
+                    "score": (
+                        accuracy_info.get("original_score", 0)
+                        if isinstance(accuracy_info, dict)
+                        else 0
+                    ),
                     "weight": weights.accuracy,
-                    "weighted": accuracy_info.get('weighted', 0) if isinstance(accuracy_info, dict) else 0,
-                    "correct": acc_details.get('correct'),
-                    "skipped": acc_details.get('skipped', False)
+                    "weighted": (
+                        accuracy_info.get("weighted", 0) if isinstance(accuracy_info, dict) else 0
+                    ),
+                    "correct": acc_details.get("correct"),
+                    "skipped": acc_details.get("skipped", False),
                 },
                 "boxed": {
-                    "score": boxed_info.get('score', 0) if isinstance(boxed_info, dict) else 0,
+                    "score": boxed_info.get("score", 0) if isinstance(boxed_info, dict) else 0,
                     "weight": weights.boxed,
-                    "weighted": boxed_info.get('weighted', 0) if isinstance(boxed_info, dict) else 0
+                    "weighted": (
+                        boxed_info.get("weighted", 0) if isinstance(boxed_info, dict) else 0
+                    ),
                 },
                 "format": {
-                    "score": format_info.get('score', 0) if isinstance(format_info, dict) else 0,
+                    "score": format_info.get("score", 0) if isinstance(format_info, dict) else 0,
                     "weight": weights.format,
-                    "weighted": format_info.get('weighted', 0) if isinstance(format_info, dict) else 0
+                    "weighted": (
+                        format_info.get("weighted", 0) if isinstance(format_info, dict) else 0
+                    ),
                 },
                 "reasoning": {
-                    "score": reasoning_info.get('score', 0) if isinstance(reasoning_info, dict) else 0,
+                    "score": (
+                        reasoning_info.get("score", 0) if isinstance(reasoning_info, dict) else 0
+                    ),
                     "weight": weights.reasoning,
-                    "weighted": reasoning_info.get('weighted', 0) if isinstance(reasoning_info, dict) else 0,
-                    "thinking_words": reas_details.get('thinking_words', 0)
-                }
+                    "weighted": (
+                        reasoning_info.get("weighted", 0) if isinstance(reasoning_info, dict) else 0
+                    ),
+                    "thinking_words": reas_details.get("thinking_words", 0),
+                },
             },
-
             # === PENALTIES ===
             "penalties": {
-                "total": penalties_info.get('total', 0),
-                "multiplier": penalties_info.get('multiplier', 1.0),
-                "length": penalties_info.get('length', 0),
-                "bad_words": penalties_info.get('bad_words', 0),
-                "repeat_words": penalties_info.get('repeat_words', 0),
+                "total": penalties_info.get("total", 0),
+                "multiplier": penalties_info.get("multiplier", 1.0),
+                "length": penalties_info.get("length", 0),
+                "bad_words": penalties_info.get("bad_words", 0),
+                "repeat_words": penalties_info.get("repeat_words", 0),
                 "gaming": {
-                    "total": gaming_info.get('total', 0) if isinstance(gaming_info, dict) else 0,
-                    "breakdown": gaming_breakdown
-                }
+                    "total": gaming_info.get("total", 0) if isinstance(gaming_info, dict) else 0,
+                    "breakdown": gaming_breakdown,
+                },
             },
-
             # === REWARD COMPUTATION ===
             "reward": {
-                "raw": details.get('raw_score', 0),
-                "penalized": details.get('penalized_score', 0),
-                "clamped": details.get('clamped_score', 0),
-                "smoothed": details.get('smoothing', {}).get('post_smooth', 0),
-                "final": final_reward
+                "raw": details.get("raw_score", 0),
+                "penalized": details.get("penalized_score", 0),
+                "clamped": details.get("clamped_score", 0),
+                "smoothed": details.get("smoothing", {}).get("post_smooth", 0),
+                "final": final_reward,
             },
-
             # === VERDICT (quick summary) ===
             "verdict": {
-                "correct": acc_details.get('correct'),
-                "format_ok": fmt_details.get('has_think_tags', False) and box_details.get('has_boxed', False),
-                "format_gate_applied": details.get('format_gate', {}).get('gate_applied', False),
+                "correct": acc_details.get("correct"),
+                "format_ok": fmt_details.get("has_think_tags", False)
+                and box_details.get("has_boxed", False),
+                "format_gate_applied": details.get("format_gate", {}).get("gate_applied", False),
                 "gaming_detected": len(gaming_patterns) > 0,
                 "gaming_patterns": gaming_patterns,
-                "total_penalty": penalties_info.get('total', 0),
-                "final_reward": final_reward
-            }
+                "total_penalty": penalties_info.get("total", 0),
+                "final_reward": final_reward,
+            },
         }
 
         self._write(entry)
@@ -323,7 +344,7 @@ class StructuredRewardLogger:
         rewards: List[float],
         correct_count: int,
         total_count: int,
-        iteration: Optional[int] = None
+        iteration: Optional[int] = None,
     ):
         """Log batch processing summary."""
         if not self.enabled:
@@ -332,6 +353,7 @@ class StructuredRewardLogger:
         self._batch_counter += 1
 
         import numpy as np
+
         rewards_arr = np.array(rewards)
 
         entry = {
@@ -347,15 +369,15 @@ class StructuredRewardLogger:
                 "reward_std": float(rewards_arr.std()),
                 "reward_min": float(rewards_arr.min()),
                 "reward_max": float(rewards_arr.max()),
-                "reward_median": float(np.median(rewards_arr))
+                "reward_median": float(np.median(rewards_arr)),
             },
             "distribution": {
                 "0.0-0.2": int(np.sum((rewards_arr >= 0.0) & (rewards_arr < 0.2))),
                 "0.2-0.4": int(np.sum((rewards_arr >= 0.2) & (rewards_arr < 0.4))),
                 "0.4-0.6": int(np.sum((rewards_arr >= 0.4) & (rewards_arr < 0.6))),
                 "0.6-0.8": int(np.sum((rewards_arr >= 0.6) & (rewards_arr < 0.8))),
-                "0.8-1.0": int(np.sum((rewards_arr >= 0.8) & (rewards_arr <= 1.0)))
-            }
+                "0.8-1.0": int(np.sum((rewards_arr >= 0.8) & (rewards_arr <= 1.0))),
+            },
         }
 
         self._write(entry)
@@ -374,7 +396,9 @@ class StructuredRewardLogger:
         self.close()
         # FIX #2: Use consistent default
         self.log_file = os.environ.get("EXAM_REWARD_STRUCTURED_LOG", _DEFAULT_STRUCTURED_LOG_FILE)
-        self.log_console = os.environ.get("EXAM_REWARD_STRUCTURED_CONSOLE", "false").lower() == "true"
+        self.log_console = (
+            os.environ.get("EXAM_REWARD_STRUCTURED_CONSOLE", "false").lower() == "true"
+        )
         self.enabled = bool(self.log_file) or self.log_console
 
 
@@ -391,6 +415,7 @@ def reconfigure_structured_logging():
 # =============================================================================
 # Standard Logging Configuration
 # =============================================================================
+
 
 def _configure_logging(force_reconfigure: bool = False) -> logging.Logger:
     """
@@ -439,8 +464,7 @@ def _configure_logging(force_reconfigure: bool = False) -> logging.Logger:
 
     # Create formatter
     formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
     # Add file handler if specified
@@ -451,7 +475,7 @@ def _configure_logging(force_reconfigure: bool = False) -> logging.Logger:
             if log_dir and not os.path.exists(log_dir):
                 os.makedirs(log_dir, exist_ok=True)
 
-            file_handler = logging.FileHandler(log_file, mode='a')
+            file_handler = logging.FileHandler(log_file, mode="a")
             file_handler.setLevel(log_level)
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
@@ -469,7 +493,9 @@ def _configure_logging(force_reconfigure: bool = False) -> logging.Logger:
 
     # Log configuration for debugging
     if log_level <= logging.DEBUG:
-        logger.debug(f"Logging configured: level={log_level_str}, file={log_file or 'None'}, console={log_console}")
+        logger.debug(
+            f"Logging configured: level={log_level_str}, file={log_file or 'None'}, console={log_console}"
+        )
 
     return logger
 
@@ -504,6 +530,7 @@ _logger = _configure_logging()
 # Reward Weights
 # =============================================================================
 
+
 @dataclass
 class RewardWeights:
     """
@@ -525,10 +552,11 @@ class RewardWeights:
 
     Total sums to 1.0 for normalized scores.
     """
+
     # FIX #14: Docstring now matches these values
-    accuracy: float = 0.75   # Primary signal - only discriminative component!
-    boxed: float = 0.02      # Already mastered by model
-    format: float = 0.03     # Already mastered by model
+    accuracy: float = 0.75  # Primary signal - only discriminative component!
+    boxed: float = 0.02  # Already mastered by model
+    format: float = 0.03  # Already mastered by model
     reasoning: float = 0.20  # Not discriminative (gap=0.027)
 
     def __post_init__(self) -> None:
@@ -537,7 +565,7 @@ class RewardWeights:
 
     def _validate(self) -> None:
         """Validate that weights are reasonable."""
-        for name in ['accuracy', 'boxed', 'format', 'reasoning']:
+        for name in ["accuracy", "boxed", "format", "reasoning"]:
             value = getattr(self, name)
             if not isinstance(value, (int, float)):
                 raise TypeError(f"Weight '{name}' must be numeric, got {type(value)}")
@@ -584,6 +612,7 @@ class FormatConfig:
             repeat_word_penalty=0.02,
         )
     """
+
     # === Thinking tag configuration ===
     think_tag: str = "think"  # Primary thinking tag (without < >)
     alt_think_tags: List[str] = field(default_factory=list)  # Alternative tags
@@ -618,28 +647,144 @@ class FormatConfig:
     repeat_word_penalty: float = 0.02  # Penalty per excess repetition
     repeat_word_max_penalty: float = 0.3  # Maximum total repeat penalty
     repeat_word_min_length: int = 4  # Only count words with >= this many chars
-    repeat_word_ignore: List[str] = field(default_factory=lambda: [
-        # Common stopwords that naturally repeat
-        "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
-        "be", "been", "being", "have", "has", "had", "do", "does", "did",
-        "will", "would", "could", "should", "may", "might", "must", "can",
-        "this", "that", "these", "those", "it", "its", "of", "to", "in",
-        "for", "on", "with", "as", "at", "by", "from", "not", "no", "if",
-        "then", "else", "when", "where", "which", "who", "what", "how",
-        "all", "each", "every", "both", "few", "more", "most", "other",
-        "some", "such", "than", "too", "very", "just", "also", "only",
-        # Technical/exam terms that naturally repeat
-        "option", "answer", "question", "choice", "correct", "incorrect",
-        "true", "false", "yes", "no", "data", "service", "services",
-        "using", "used", "use", "need", "needs", "required", "requires",
-        "provide", "provides", "allow", "allows", "enable", "enables",
-        "configuration", "configure", "configured", "setting", "settings",
-        "instance", "instances", "resource", "resources", "request", "requests",
-        "response", "responses", "access", "policy", "policies", "role", "roles",
-        "user", "users", "group", "groups", "region", "regions", "account",
-        "bucket", "buckets", "function", "functions", "table", "tables",
-        "database", "storage", "network", "security", "application",
-    ])
+    repeat_word_ignore: List[str] = field(
+        default_factory=lambda: [
+            # Common stopwords that naturally repeat
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "must",
+            "can",
+            "this",
+            "that",
+            "these",
+            "those",
+            "it",
+            "its",
+            "of",
+            "to",
+            "in",
+            "for",
+            "on",
+            "with",
+            "as",
+            "at",
+            "by",
+            "from",
+            "not",
+            "no",
+            "if",
+            "then",
+            "else",
+            "when",
+            "where",
+            "which",
+            "who",
+            "what",
+            "how",
+            "all",
+            "each",
+            "every",
+            "both",
+            "few",
+            "more",
+            "most",
+            "other",
+            "some",
+            "such",
+            "than",
+            "too",
+            "very",
+            "just",
+            "also",
+            "only",
+            # Technical/exam terms that naturally repeat
+            "option",
+            "answer",
+            "question",
+            "choice",
+            "correct",
+            "incorrect",
+            "true",
+            "false",
+            "yes",
+            "no",
+            "data",
+            "service",
+            "services",
+            "using",
+            "used",
+            "use",
+            "need",
+            "needs",
+            "required",
+            "requires",
+            "provide",
+            "provides",
+            "allow",
+            "allows",
+            "enable",
+            "enables",
+            "configuration",
+            "configure",
+            "configured",
+            "setting",
+            "settings",
+            "instance",
+            "instances",
+            "resource",
+            "resources",
+            "request",
+            "requests",
+            "response",
+            "responses",
+            "access",
+            "policy",
+            "policies",
+            "role",
+            "roles",
+            "user",
+            "users",
+            "group",
+            "groups",
+            "region",
+            "regions",
+            "account",
+            "bucket",
+            "buckets",
+            "function",
+            "functions",
+            "table",
+            "tables",
+            "database",
+            "storage",
+            "network",
+            "security",
+            "application",
+        ]
+    )
 
     # === Reward smoothing configuration ===
     reward_smoothing: str = "none"  # "none", "clip", "sigmoid", "tanh"
@@ -659,10 +804,22 @@ class FormatConfig:
     answer_shopping_threshold: int = 4  # How many options triggers penalty
 
     # Hedge words (excessive uncertainty language)
-    hedge_words: List[str] = field(default_factory=lambda: [
-        "maybe", "possibly", "perhaps", "might", "probably", "likely",
-        "unlikely", "seems", "appears", "somewhat", "fairly", "arguably"
-    ])
+    hedge_words: List[str] = field(
+        default_factory=lambda: [
+            "maybe",
+            "possibly",
+            "perhaps",
+            "might",
+            "probably",
+            "likely",
+            "unlikely",
+            "seems",
+            "appears",
+            "somewhat",
+            "fairly",
+            "arguably",
+        ]
+    )
     hedge_word_threshold: int = 5  # Allow this many before penalty
     hedge_word_penalty: float = 0.02  # Per excess hedge word
     hedge_word_max_penalty: float = 0.2  # Cap total hedge penalty
@@ -683,18 +840,43 @@ class FormatConfig:
     answer_repeat_penalty: float = 0.15  # Penalty for excessive answer repetition
 
     # Filler/fluff phrases (model padding with empty phrases)
-    filler_phrases: List[str] = field(default_factory=lambda: [
-        "let me think", "let me analyze", "let me consider",
-        "i need to think", "i need to analyze", "i need to consider",
-        "this is a great question", "this is an interesting question",
-        "this is a good question", "great question", "good question",
-        "step by step", "one by one", "carefully consider",
-        "i will analyze", "i will consider", "i will think",
-        "let's break this down", "let's analyze", "let's think",
-        "thinking about this", "considering this", "analyzing this",
-        "hmm", "hmmm", "well let me", "okay so", "ok so", "alright",
-        "interesting", "i see", "now let me", "first let me",
-    ])
+    filler_phrases: List[str] = field(
+        default_factory=lambda: [
+            "let me think",
+            "let me analyze",
+            "let me consider",
+            "i need to think",
+            "i need to analyze",
+            "i need to consider",
+            "this is a great question",
+            "this is an interesting question",
+            "this is a good question",
+            "great question",
+            "good question",
+            "step by step",
+            "one by one",
+            "carefully consider",
+            "i will analyze",
+            "i will consider",
+            "i will think",
+            "let's break this down",
+            "let's analyze",
+            "let's think",
+            "thinking about this",
+            "considering this",
+            "analyzing this",
+            "hmm",
+            "hmmm",
+            "well let me",
+            "okay so",
+            "ok so",
+            "alright",
+            "interesting",
+            "i see",
+            "now let me",
+            "first let me",
+        ]
+    )
     filler_phrase_threshold: int = 3  # Penalize if more than N filler phrases
     filler_phrase_penalty: float = 0.05  # Per excess filler phrase
     filler_phrase_max_penalty: float = 0.2  # Cap
@@ -715,7 +897,9 @@ class FormatConfig:
 
     # === Pre-compiled patterns (set in __post_init__) ===
     _think_patterns: List[Tuple[str, re.Pattern]] = field(default_factory=list, repr=False)
-    _boxed_patterns: List[Tuple[str, re.Pattern, re.Pattern]] = field(default_factory=list, repr=False)
+    _boxed_patterns: List[Tuple[str, re.Pattern, re.Pattern]] = field(
+        default_factory=list, repr=False
+    )
     _bad_words_set: frozenset = field(default_factory=frozenset, repr=False)
     _repeat_ignore_set: frozenset = field(default_factory=frozenset, repr=False)
     _hedge_words_set: frozenset = field(default_factory=frozenset, repr=False)
@@ -726,27 +910,45 @@ class FormatConfig:
         if not self.think_tag:
             raise ValueError("think_tag cannot be empty")
         if self.format_gate_threshold < 0 or self.format_gate_threshold > 1:
-            raise ValueError(f"format_gate_threshold must be in [0,1], got {self.format_gate_threshold}")
+            raise ValueError(
+                f"format_gate_threshold must be in [0,1], got {self.format_gate_threshold}"
+            )
         if self.format_gate_penalty < 0 or self.format_gate_penalty > 1:
-            raise ValueError(f"format_gate_penalty must be in [0,1], got {self.format_gate_penalty}")
+            raise ValueError(
+                f"format_gate_penalty must be in [0,1], got {self.format_gate_penalty}"
+            )
         if self.length_penalty_weight < 0 or self.length_penalty_weight > 1:
-            raise ValueError(f"length_penalty_weight must be in [0,1], got {self.length_penalty_weight}")
+            raise ValueError(
+                f"length_penalty_weight must be in [0,1], got {self.length_penalty_weight}"
+            )
         if self.reward_smoothing not in ("none", "clip", "sigmoid", "tanh"):
-            raise ValueError(f"reward_smoothing must be none/clip/sigmoid/tanh, got {self.reward_smoothing}")
+            raise ValueError(
+                f"reward_smoothing must be none/clip/sigmoid/tanh, got {self.reward_smoothing}"
+            )
         if self.length_penalty_type not in ("soft", "hard"):
-            raise ValueError(f"length_penalty_type must be soft/hard, got {self.length_penalty_type}")
+            raise ValueError(
+                f"length_penalty_type must be soft/hard, got {self.length_penalty_type}"
+            )
         if self.reward_temp <= 0:
             raise ValueError(f"reward_temp must be positive, got {self.reward_temp}")
         if self.bad_word_penalty < 0:
             raise ValueError(f"bad_word_penalty must be non-negative, got {self.bad_word_penalty}")
         if self.bad_word_max_penalty < 0:
-            raise ValueError(f"bad_word_max_penalty must be non-negative, got {self.bad_word_max_penalty}")
+            raise ValueError(
+                f"bad_word_max_penalty must be non-negative, got {self.bad_word_max_penalty}"
+            )
         if self.repeat_word_threshold < 0:
-            raise ValueError(f"repeat_word_threshold must be non-negative, got {self.repeat_word_threshold}")
+            raise ValueError(
+                f"repeat_word_threshold must be non-negative, got {self.repeat_word_threshold}"
+            )
         if self.repeat_word_penalty < 0:
-            raise ValueError(f"repeat_word_penalty must be non-negative, got {self.repeat_word_penalty}")
+            raise ValueError(
+                f"repeat_word_penalty must be non-negative, got {self.repeat_word_penalty}"
+            )
         if self.repeat_word_min_length < 1:
-            raise ValueError(f"repeat_word_min_length must be >= 1, got {self.repeat_word_min_length}")
+            raise ValueError(
+                f"repeat_word_min_length must be >= 1, got {self.repeat_word_min_length}"
+            )
 
         # Pre-compile patterns and sets for efficiency
         self._compile_patterns()
@@ -757,21 +959,20 @@ class FormatConfig:
         self._think_patterns = []
         for tag in self.get_all_think_tags():
             pattern = re.compile(
-                rf'<{re.escape(tag)}>(.*?)</{re.escape(tag)}>',
-                re.IGNORECASE | re.DOTALL
+                rf"<{re.escape(tag)}>(.*?)</{re.escape(tag)}>", re.IGNORECASE | re.DOTALL
             )
             self._think_patterns.append((tag, pattern))
 
         # Boxed patterns
         self._boxed_patterns = []
         for fmt in self.get_all_boxed_formats():
-            match = re.match(r'\\(\w+)\{\}', fmt)
+            match = re.match(r"\\(\w+)\{\}", fmt)
             if match:
                 cmd = match.group(1)
                 # Pattern for checking presence
-                check_pattern = re.compile(rf'\\{cmd}\{{', re.IGNORECASE)
+                check_pattern = re.compile(rf"\\{cmd}\{{", re.IGNORECASE)
                 # Pattern for extracting content
-                extract_pattern = re.compile(rf'\\{cmd}\{{([^}}]*)\}}', re.IGNORECASE)
+                extract_pattern = re.compile(rf"\\{cmd}\{{([^}}]*)\}}", re.IGNORECASE)
                 self._boxed_patterns.append((cmd, check_pattern, extract_pattern))
 
         # Bad words set (frozen for thread safety and fast lookup)
@@ -797,11 +998,7 @@ class FormatConfig:
         """Return all accepted boxed formats."""
         return [self.boxed_format] + list(self.alt_boxed_formats)
 
-    def compute_length_penalty(
-        self,
-        thinking_words: int,
-        answer_words: int
-    ) -> float:
+    def compute_length_penalty(self, thinking_words: int, answer_words: int) -> float:
         """
         Compute length penalty based on configuration.
 
@@ -861,7 +1058,7 @@ class FormatConfig:
             return 0.0, {}
 
         # Tokenize efficiently - only alphanumeric words
-        words = re.findall(r'\b[a-zA-Z]+\b', text)
+        words = re.findall(r"\b[a-zA-Z]+\b", text)
 
         # Count bad word occurrences
         bad_word_counts: Dict[str, int] = {}
@@ -897,14 +1094,17 @@ class FormatConfig:
             return 0.0, {}
 
         # Tokenize - only words meeting minimum length
-        words = re.findall(r'\b[a-zA-Z]+\b', text)
+        words = re.findall(r"\b[a-zA-Z]+\b", text)
 
         # Count word frequencies (case-insensitive)
         word_counts: Dict[str, int] = {}
         for word in words:
             lower_word = word.lower()
             # Skip short words and ignored words
-            if len(lower_word) >= self.repeat_word_min_length and lower_word not in self._repeat_ignore_set:
+            if (
+                len(lower_word) >= self.repeat_word_min_length
+                and lower_word not in self._repeat_ignore_set
+            ):
                 word_counts[lower_word] = word_counts.get(lower_word, 0) + 1
 
         # Find words exceeding threshold
@@ -931,7 +1131,7 @@ class FormatConfig:
         completion: str,
         thinking_text: str,
         boxed_answer: Optional[str],
-        prompt_text: str = ""
+        prompt_text: str = "",
     ) -> Tuple[float, Dict[str, Any]]:
         """
         Detect and penalize gaming behaviors in model output.
@@ -967,21 +1167,23 @@ class FormatConfig:
         thinking_lower = thinking_text.lower() if thinking_text else ""
 
         # 1. Multiple boxed answers
-        boxed_matches = re.findall(r'\\boxed\{[^}]*\}', completion)
+        boxed_matches = re.findall(r"\\boxed\{[^}]*\}", completion)
         if len(boxed_matches) > 1:
-            penalties['multiple_boxed'] = self.multiple_boxed_penalty
-            details['multiple_boxed'] = {
-                'count': len(boxed_matches),
-                'answers': boxed_matches[:5]
-            }
+            penalties["multiple_boxed"] = self.multiple_boxed_penalty
+            details["multiple_boxed"] = {"count": len(boxed_matches), "answers": boxed_matches[:5]}
 
         # 2. Answer shopping (all options A, B, C, D mentioned)
         if thinking_lower:
             options_found = set()
-            for letter in ['a', 'b', 'c', 'd']:
+            for letter in ["a", "b", "c", "d"]:
                 patterns = [
-                    f'option {letter}', f'choice {letter}', f'({letter})',
-                    f' {letter}.', f' {letter}:', f' {letter} is', f' {letter} -',
+                    f"option {letter}",
+                    f"choice {letter}",
+                    f"({letter})",
+                    f" {letter}.",
+                    f" {letter}:",
+                    f" {letter} is",
+                    f" {letter} -",
                 ]
                 for pattern in patterns:
                     if pattern in thinking_lower:
@@ -989,24 +1191,24 @@ class FormatConfig:
                         break
 
             if len(options_found) >= self.answer_shopping_threshold:
-                penalties['answer_shopping'] = self.answer_shopping_penalty
-                details['answer_shopping'] = {
-                    'options_found': sorted(list(options_found)),
-                    'threshold': self.answer_shopping_threshold
+                penalties["answer_shopping"] = self.answer_shopping_penalty
+                details["answer_shopping"] = {
+                    "options_found": sorted(list(options_found)),
+                    "threshold": self.answer_shopping_threshold,
                 }
 
         # 3. Hedge words
         if self._hedge_words_set and self.hedge_word_threshold > 0:
             words = completion_lower.split()
-            hedge_count = sum(1 for w in words if w.strip('.,!?;:()[]') in self._hedge_words_set)
+            hedge_count = sum(1 for w in words if w.strip(".,!?;:()[]") in self._hedge_words_set)
             if hedge_count > self.hedge_word_threshold:
                 excess = hedge_count - self.hedge_word_threshold
                 raw_penalty = excess * self.hedge_word_penalty
-                penalties['hedge_words'] = min(raw_penalty, self.hedge_word_max_penalty)
-                details['hedge_words'] = {
-                    'count': hedge_count,
-                    'excess': excess,
-                    'threshold': self.hedge_word_threshold
+                penalties["hedge_words"] = min(raw_penalty, self.hedge_word_max_penalty)
+                details["hedge_words"] = {
+                    "count": hedge_count,
+                    "excess": excess,
+                    "threshold": self.hedge_word_threshold,
                 }
 
         # 4. Repetitive phrases (n-grams repeated multiple times)
@@ -1017,34 +1219,39 @@ class FormatConfig:
                 ngrams = []
                 for n in range(self.repetitive_phrase_min_words, min(6, len(words))):
                     for i in range(len(words) - n + 1):
-                        ngram = ' '.join(words[i:i+n])
+                        ngram = " ".join(words[i : i + n])
                         if len(ngram) > 10:
                             ngrams.append(ngram)
 
                 ngram_counts = Counter(ngrams)
-                repeated = {ng: c for ng, c in ngram_counts.items()
-                           if c >= self.repetitive_phrase_threshold}
+                repeated = {
+                    ng: c for ng, c in ngram_counts.items() if c >= self.repetitive_phrase_threshold
+                }
 
                 if repeated:
                     num_repeated_types = len(repeated)
                     raw_penalty = num_repeated_types * self.repetitive_phrase_penalty
-                    penalties['repetitive_phrases'] = min(raw_penalty, self.repetitive_phrase_max_penalty)
-                    details['repetitive_phrases'] = {
-                        'repeated_phrases': dict(list(repeated.items())[:5]),
-                        'total_types': num_repeated_types
+                    penalties["repetitive_phrases"] = min(
+                        raw_penalty, self.repetitive_phrase_max_penalty
+                    )
+                    details["repetitive_phrases"] = {
+                        "repeated_phrases": dict(list(repeated.items())[:5]),
+                        "total_types": num_repeated_types,
                     }
 
         # 5. Garbage characters (non-printable, weird Unicode)
         if self.garbage_char_threshold > 0:
-            garbage = re.findall(r'[^\x20-\x7E\n\r\t\u00A0-\u00FF\u2018-\u201F\u2013-\u2014\u2026]', completion)
+            garbage = re.findall(
+                r"[^\x20-\x7E\n\r\t\u00A0-\u00FF\u2018-\u201F\u2013-\u2014\u2026]", completion
+            )
             if len(garbage) > self.garbage_char_threshold:
                 excess = len(garbage) - self.garbage_char_threshold
                 raw_penalty = excess * self.garbage_char_penalty
-                penalties['garbage_chars'] = min(raw_penalty, self.garbage_char_max_penalty)
-                details['garbage_chars'] = {
-                    'count': len(garbage),
-                    'excess': excess,
-                    'sample': garbage[:10]
+                penalties["garbage_chars"] = min(raw_penalty, self.garbage_char_max_penalty)
+                details["garbage_chars"] = {
+                    "count": len(garbage),
+                    "excess": excess,
+                    "sample": garbage[:10],
                 }
 
         # 6. Answer repetition in thinking (confidence gaming)
@@ -1052,20 +1259,20 @@ class FormatConfig:
             answer_lower = boxed_answer.lower().strip()
             if len(answer_lower) <= 3:
                 patterns = [
-                    rf'\b{re.escape(answer_lower)}\b',
-                    rf'\({re.escape(answer_lower)}\)',
-                    rf'option\s+{re.escape(answer_lower)}',
+                    rf"\b{re.escape(answer_lower)}\b",
+                    rf"\({re.escape(answer_lower)}\)",
+                    rf"option\s+{re.escape(answer_lower)}",
                 ]
                 total_count = 0
                 for pattern in patterns:
                     total_count += len(re.findall(pattern, thinking_lower, re.IGNORECASE))
 
                 if total_count > self.answer_repeat_threshold:
-                    penalties['answer_repetition'] = self.answer_repeat_penalty
-                    details['answer_repetition'] = {
-                        'answer': boxed_answer,
-                        'count': total_count,
-                        'threshold': self.answer_repeat_threshold
+                    penalties["answer_repetition"] = self.answer_repeat_penalty
+                    details["answer_repetition"] = {
+                        "answer": boxed_answer,
+                        "count": total_count,
+                        "threshold": self.answer_repeat_threshold,
                     }
 
         # 7. Filler/fluff phrases
@@ -1081,12 +1288,12 @@ class FormatConfig:
             if filler_count > self.filler_phrase_threshold:
                 excess = filler_count - self.filler_phrase_threshold
                 raw_penalty = excess * self.filler_phrase_penalty
-                penalties['filler_phrases'] = min(raw_penalty, self.filler_phrase_max_penalty)
-                details['filler_phrases'] = {
-                    'count': filler_count,
-                    'excess': excess,
-                    'found': found_fillers[:5],
-                    'threshold': self.filler_phrase_threshold
+                penalties["filler_phrases"] = min(raw_penalty, self.filler_phrase_max_penalty)
+                details["filler_phrases"] = {
+                    "count": filler_count,
+                    "excess": excess,
+                    "found": found_fillers[:5],
+                    "threshold": self.filler_phrase_threshold,
                 }
 
         # 8. Boxed answer hedging (e.g., "A or B", "A/B", "A, B")
@@ -1095,10 +1302,10 @@ class FormatConfig:
             answer_stripped = boxed_answer.strip()
             for pattern in _HEDGING_PATTERNS:
                 if pattern.search(answer_stripped):
-                    penalties['boxed_hedging'] = self.boxed_hedging_penalty
-                    details['boxed_hedging'] = {
-                        'answer': boxed_answer,
-                        'pattern_matched': pattern.pattern
+                    penalties["boxed_hedging"] = self.boxed_hedging_penalty
+                    details["boxed_hedging"] = {
+                        "answer": boxed_answer,
+                        "pattern_matched": pattern.pattern,
                     }
                     break
 
@@ -1106,20 +1313,22 @@ class FormatConfig:
         # FIX #13: Defensive division by zero check
         if prompt_text and thinking_lower and self.prompt_copy_threshold > 0:
             prompt_lower = prompt_text.lower()
-            prompt_words = set(w.strip('.,!?;:()[]"\'') for w in prompt_lower.split() if len(w) > 3)
-            thinking_words = set(w.strip('.,!?;:()[]"\'') for w in thinking_lower.split() if len(w) > 3)
+            prompt_words = set(w.strip(".,!?;:()[]\"'") for w in prompt_lower.split() if len(w) > 3)
+            thinking_words = set(
+                w.strip(".,!?;:()[]\"'") for w in thinking_lower.split() if len(w) > 3
+            )
 
             if prompt_words:
                 overlap = len(prompt_words & thinking_words)
                 ratio = overlap / len(prompt_words) if len(prompt_words) > 0 else 0
 
                 if ratio > self.prompt_copy_threshold:
-                    penalties['prompt_copying'] = self.prompt_copy_penalty
-                    details['prompt_copying'] = {
-                        'overlap_ratio': round(ratio, 3),
-                        'threshold': self.prompt_copy_threshold,
-                        'overlap_count': overlap,
-                        'prompt_word_count': len(prompt_words)
+                    penalties["prompt_copying"] = self.prompt_copy_penalty
+                    details["prompt_copying"] = {
+                        "overlap_ratio": round(ratio, 3),
+                        "threshold": self.prompt_copy_threshold,
+                        "overlap_count": overlap,
+                        "prompt_word_count": len(prompt_words),
                     }
 
         # 10. Low entropy text (very repetitive/garbage)
@@ -1128,12 +1337,12 @@ class FormatConfig:
             if len(words) >= 10:  # Only check if enough words
                 unique_ratio = len(set(words)) / len(words) if len(words) > 0 else 0
                 if unique_ratio < self.min_unique_word_ratio:
-                    penalties['low_entropy'] = self.low_entropy_penalty
-                    details['low_entropy'] = {
-                        'unique_ratio': round(unique_ratio, 3),
-                        'threshold': self.min_unique_word_ratio,
-                        'total_words': len(words),
-                        'unique_words': len(set(words))
+                    penalties["low_entropy"] = self.low_entropy_penalty
+                    details["low_entropy"] = {
+                        "unique_ratio": round(unique_ratio, 3),
+                        "threshold": self.min_unique_word_ratio,
+                        "total_words": len(words),
+                        "unique_words": len(set(words)),
                     }
 
         # 11. Reasoning-answer inconsistency
@@ -1142,9 +1351,9 @@ class FormatConfig:
             answer_stripped = boxed_answer.strip().upper()
 
             # Only check for single-letter answers
-            if len(answer_stripped) == 1 and answer_stripped in 'ABCD':
+            if len(answer_stripped) == 1 and answer_stripped in "ABCD":
                 # Look for contradicting conclusions in thinking
-                other_options = [opt for opt in 'ABCD' if opt != answer_stripped]
+                other_options = [opt for opt in "ABCD" if opt != answer_stripped]
 
                 for opt in other_options:
                     for pattern in _STRONG_CONCLUSION_PATTERNS:
@@ -1153,24 +1362,20 @@ class FormatConfig:
                             # Check if this pattern mentions the other option
                             matched_text = match.group(0).upper()
                             if opt in matched_text:
-                                penalties['inconsistency'] = self.inconsistency_penalty
-                                details['inconsistency'] = {
-                                    'boxed_answer': answer_stripped,
-                                    'contradicting_option': opt,
-                                    'pattern': pattern.pattern
+                                penalties["inconsistency"] = self.inconsistency_penalty
+                                details["inconsistency"] = {
+                                    "boxed_answer": answer_stripped,
+                                    "contradicting_option": opt,
+                                    "pattern": pattern.pattern,
                                 }
                                 break
-                    if 'inconsistency' in penalties:
+                    if "inconsistency" in penalties:
                         break
 
         # Calculate total penalty (capped at 1.0)
         total_penalty = min(1.0, sum(penalties.values()))
 
-        return total_penalty, {
-            'total': total_penalty,
-            'breakdown': penalties,
-            'details': details
-        }
+        return total_penalty, {"total": total_penalty, "breakdown": penalties, "details": details}
 
     def smooth_reward(self, reward: float) -> float:
         """
@@ -1221,83 +1426,66 @@ DEFAULT_FORMAT_CONFIG = FormatConfig(
     # Format tags
     think_tag="think",
     alt_think_tags=["thinking"],
-
     # Format gate - enabled (ensures format compliance)
     strict_format=True,
     format_gate_threshold=0.5,
     format_gate_penalty=0.3,
-
     # Length penalties - moderate (prevents gaming without being too strict)
-    min_thinking_words=20,      # Require some reasoning
-    max_thinking_words=250,     # Reduced from 300 - discourage padding
-    max_answer_words=80,        # Reduced from 100
-    length_penalty_weight=0.10, # Increased from 0.08
+    min_thinking_words=20,  # Require some reasoning
+    max_thinking_words=250,  # Reduced from 300 - discourage padding
+    max_answer_words=80,  # Reduced from 100
+    length_penalty_weight=0.10,  # Increased from 0.08
     length_penalty_type="soft",
-
     # Bad words - common filler words
     bad_words=["obviously", "clearly", "simply", "basically", "essentially"],
     bad_word_penalty=0.025,
     bad_word_max_penalty=0.15,
-
     # Repeat words - enabled with reasonable threshold
     repeat_word_threshold=4,
     repeat_word_penalty=0.02,
     repeat_word_max_penalty=0.20,
-
     # =========================================================================
     # GAMING DETECTION - TUNED based on correct/incorrect targeting analysis
     # Only penalize patterns that actually target INCORRECT answers!
     # =========================================================================
     detect_gaming=True,
-
     # Multiple boxed - slightly targets incorrect (16.7% vs 14.6%)
     multiple_boxed_penalty=0.25,  # Reduced - only slight targeting
-
     # Answer shopping - DISABLED! Hits CORRECT more (15.6% vs 10.2%)
     # When model analyzes all options, it's often correct!
     answer_shopping_penalty=0.0,  # ← DISABLED
     answer_shopping_threshold=4,
-
     # Hedge words - keep light penalty
     hedge_word_threshold=5,
     hedge_word_penalty=0.02,
     hedge_word_max_penalty=0.12,
-
     # Repetitive phrases - reduced (neutral targeting 31% vs 31%)
     repetitive_phrase_threshold=4,  # Increased threshold
     repetitive_phrase_min_words=4,  # Longer phrases only
-    repetitive_phrase_penalty=0.05, # Reduced from 0.12
-    repetitive_phrase_max_penalty=0.15, # Reduced from 0.35
-
+    repetitive_phrase_penalty=0.05,  # Reduced from 0.12
+    repetitive_phrase_max_penalty=0.15,  # Reduced from 0.35
     # Garbage chars - keep moderate
     garbage_char_threshold=5,
     garbage_char_penalty=0.04,
     garbage_char_max_penalty=0.20,
-
     # Answer repetition - DISABLED! Hits CORRECT 32x more (22.6% vs 0.7%)
     # Confident correct answers naturally repeat the answer!
-    answer_repeat_threshold=10,   # Very high threshold
-    answer_repeat_penalty=0.0,    # ← DISABLED
-
+    answer_repeat_threshold=10,  # Very high threshold
+    answer_repeat_penalty=0.0,  # ← DISABLED
     # Filler phrases - keep light (neutral targeting)
     filler_phrase_threshold=4,
     filler_phrase_penalty=0.04,
     filler_phrase_max_penalty=0.12,
-
     # Boxed hedging - KEEP! Great targeting (0.2% correct vs 11.1% incorrect)
-    boxed_hedging_penalty=0.40,   # Keep strong - targets wrong answers!
-
+    boxed_hedging_penalty=0.40,  # Keep strong - targets wrong answers!
     # Prompt copying - DISABLED for technical data
     prompt_copy_threshold=1.0,
     prompt_copy_penalty=0.0,
-
     # Low entropy - keep moderate
     min_unique_word_ratio=0.20,
     low_entropy_penalty=0.15,
-
     # Inconsistency - KEEP! Only hits incorrect (0% vs 0.1%)
-    inconsistency_penalty=0.20,   # Increased - perfect targeting!
-
+    inconsistency_penalty=0.20,  # Increased - perfect targeting!
     # Reward smoothing - enabled for stable training
     reward_smoothing="sigmoid",
     reward_temp=4.0,
@@ -1318,9 +1506,9 @@ MINIMAL_FORMAT_CONFIG = FormatConfig(
 # Answer Extraction
 # =============================================================================
 
+
 def extract_boxed_answer(
-    completion: str,
-    format_config: Optional[FormatConfig] = None
+    completion: str, format_config: Optional[FormatConfig] = None
 ) -> Optional[str]:
     """
     Extract answer from \\boxed{} format (or configured alternative).
@@ -1358,33 +1546,33 @@ def extract_boxed_answer(
     # Try each boxed format
     for boxed_fmt in format_config.get_all_boxed_formats():
         # Extract command name (e.g., "boxed" from "\\boxed{}")
-        match = re.match(r'\\(\w+)\{\}', boxed_fmt)
+        match = re.match(r"\\(\w+)\{\}", boxed_fmt)
         if not match:
             continue
         cmd = match.group(1).lower()
 
         # Find the command position
-        boxed_start = lower_completion.find(f'\\{cmd}{{')
+        boxed_start = lower_completion.find(f"\\{cmd}{{")
 
         if boxed_start == -1:
             continue
 
         # Find the actual start in original string
-        content_start = boxed_start + len(f'\\{cmd}{{')
+        content_start = boxed_start + len(f"\\{cmd}{{")
 
         # Handle nested braces by counting brace depth
         depth = 1
         pos = content_start
         while pos < len(completion) and depth > 0:
-            if completion[pos] == '{':
+            if completion[pos] == "{":
                 depth += 1
-            elif completion[pos] == '}':
+            elif completion[pos] == "}":
                 depth -= 1
             pos += 1
 
         if depth == 0:
             # Extract content (excluding the final closing brace)
-            content = completion[content_start:pos-1].strip()
+            content = completion[content_start : pos - 1].strip()
             if content:
                 _logger.debug(f"extract_boxed_answer: found '{content}' using {boxed_fmt}")
                 return content
@@ -1427,80 +1615,72 @@ def extract_answer_from_completion(completion: str, for_exam: bool = True) -> Op
     if boxed_answer:
         if for_exam:
             # Check if it looks like exam answer (letters only, A-Z)
-            if re.match(r'^[A-Za-z\s,&]+$', boxed_answer.replace('and', '')):
+            if re.match(r"^[A-Za-z\s,&]+$", boxed_answer.replace("and", "")):
                 return normalize_answer(boxed_answer)
         return boxed_answer  # Return raw for math
 
     # Priority 2: <answer> tags
-    answer_match = re.search(
-        r'<answer>\s*(.*?)\s*</answer>',
-        completion,
-        re.IGNORECASE | re.DOTALL
-    )
+    answer_match = re.search(r"<answer>\s*(.*?)\s*</answer>", completion, re.IGNORECASE | re.DOTALL)
     if answer_match:
         content = answer_match.group(1)
         if for_exam:
             # Only normalize if it looks like exam letters
-            if re.match(r'^[A-Za-z\s,&]+$', content.replace('and', '')):
+            if re.match(r"^[A-Za-z\s,&]+$", content.replace("and", "")):
                 return normalize_answer(content)
         return content
 
     # Priority 3: "Answer:" or "The answer is" - handles both letters and numbers
     # Try numeric answer FIRST (more specific)
     answer_match = re.search(
-        r'(?:answer|the answer is)[:\s]+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)',
+        r"(?:answer|the answer is)[:\s]+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)",
         completion,
-        re.IGNORECASE
+        re.IGNORECASE,
     )
     if answer_match:
         return answer_match.group(1)
 
     # Then try letters (but exclude "is" itself)
     answer_match = re.search(
-        r'(?:answer|the answer is)[:\s]+([A-Za-z](?:\s*[,&]?\s*(?:and\s+)?[A-Za-z])*)',
+        r"(?:answer|the answer is)[:\s]+([A-Za-z](?:\s*[,&]?\s*(?:and\s+)?[A-Za-z])*)",
         completion,
-        re.IGNORECASE
+        re.IGNORECASE,
     )
     if answer_match:
         extracted = answer_match.group(1)
         # Don't return if it's just "is" (from "answer is")
-        if extracted.lower() not in ('is', 'a', 'an', 'the'):
+        if extracted.lower() not in ("is", "a", "an", "the"):
             return normalize_answer(extracted) if for_exam else extracted
 
     # Priority 4: Bold answer **B** or **B, D** at end (case-insensitive)
     bold_match = re.search(
-        r'\*\*([A-Za-z](?:\s*[,&]?\s*[A-Za-z])*)\*\*\s*\.?\s*$',
-        completion,
-        re.IGNORECASE
+        r"\*\*([A-Za-z](?:\s*[,&]?\s*[A-Za-z])*)\*\*\s*\.?\s*$", completion, re.IGNORECASE
     )
     if bold_match:
         return normalize_answer(bold_match.group(1)) if for_exam else bold_match.group(1)
 
     # Priority 5: Last line with just letter(s)
-    lines = completion.strip().split('\n')
+    lines = completion.strip().split("\n")
     last_line = lines[-1].strip() if lines else ""
     letter_match = re.match(
-        r'^([A-Za-z](?:\s*[,&]?\s*(?:and\s+)?[A-Za-z])*)\.?$',
-        last_line,
-        re.IGNORECASE
+        r"^([A-Za-z](?:\s*[,&]?\s*(?:and\s+)?[A-Za-z])*)\.?$", last_line, re.IGNORECASE
     )
     if letter_match:
         return normalize_answer(letter_match.group(1)) if for_exam else letter_match.group(1)
 
     # Priority 5.5: "Option X" patterns
     option_match = re.match(
-        r'^(?:options?\s+)?([A-Za-z](?:\s*(?:,|and|&)\s*(?:options?\s+)?[A-Za-z])*)\.?$',
+        r"^(?:options?\s+)?([A-Za-z](?:\s*(?:,|and|&)\s*(?:options?\s+)?[A-Za-z])*)\.?$",
         last_line,
-        re.IGNORECASE
+        re.IGNORECASE,
     )
     if option_match:
         return normalize_answer(option_match.group(1)) if for_exam else option_match.group(1)
 
     # Priority 5.6: Full option line (fixed regex - require at least one separator between options)
     if re.match(
-        r'^(?:options?\s+[A-Za-z](?:\s*(?:,|and|&)\s+options?\s+[A-Za-z])*)\.?$',
+        r"^(?:options?\s+[A-Za-z](?:\s*(?:,|and|&)\s+options?\s+[A-Za-z])*)\.?$",
         last_line,
-        re.IGNORECASE
+        re.IGNORECASE,
     ):
         return normalize_answer(last_line) if for_exam else last_line
 
@@ -1509,14 +1689,39 @@ def extract_answer_from_completion(completion: str, for_exam: bool = True) -> Op
     tail = completion[-100:] if len(completion) > 100 else completion
 
     # Common words to exclude from letter extraction
-    common_words = {'a', 'i', 'is', 'as', 'at', 'be', 'by', 'do', 'go', 'he', 'if',
-                    'in', 'it', 'me', 'my', 'no', 'of', 'on', 'or', 'so', 'to', 'up',
-                    'us', 'we', 'an', 'am'}
+    common_words = {
+        "a",
+        "i",
+        "is",
+        "as",
+        "at",
+        "be",
+        "by",
+        "do",
+        "go",
+        "he",
+        "if",
+        "in",
+        "it",
+        "me",
+        "my",
+        "no",
+        "of",
+        "on",
+        "or",
+        "so",
+        "to",
+        "up",
+        "us",
+        "we",
+        "an",
+        "am",
+    }
 
     # Find standalone single letters that aren't common words
     # Use word boundaries and ensure it's truly standalone
     letters = []
-    for match in re.finditer(r'(?<![a-zA-Z])([A-Za-z])(?![a-zA-Z])', tail):
+    for match in re.finditer(r"(?<![a-zA-Z])([A-Za-z])(?![a-zA-Z])", tail):
         letter = match.group(1)
         # Check context - is this letter part of a word?
         start = max(0, match.start() - 3)
@@ -1569,21 +1774,23 @@ def normalize_answer(answer: str) -> str:
 
     # Check if this looks like a numeric answer - if so, return as-is
     stripped = answer.strip()
-    if re.match(r'^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?$', stripped):
+    if re.match(r"^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?$", stripped):
         return stripped
 
     # Check if it's a fraction
-    if re.match(r'^[-+]?\d+/\d+$', stripped):
+    if re.match(r"^[-+]?\d+/\d+$", stripped):
         return stripped
 
     # FIX #5: Only extract standalone single letters that look like answer choices
     # First, remove connector words and common prefixes
-    cleaned = re.sub(r'\b(and|or)\b', ' ', answer, flags=re.IGNORECASE)
-    cleaned = re.sub(r'\b(options?|answer|choice|choices|the|is|are)\s*', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(and|or)\b", " ", answer, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\b(options?|answer|choice|choices|the|is|are)\s*", " ", cleaned, flags=re.IGNORECASE
+    )
 
     # Now extract only standalone single uppercase letters (A-Z, likely answer choices)
     # This regex matches single letters surrounded by word boundaries or punctuation
-    letters = re.findall(r'(?<![A-Za-z])([A-Za-z])(?![A-Za-z])', cleaned)
+    letters = re.findall(r"(?<![A-Za-z])([A-Za-z])(?![A-Za-z])", cleaned)
 
     # Filter to only keep letters that are likely answer choices (A-F typically)
     # and deduplicate while preserving order for sorting
@@ -1592,14 +1799,14 @@ def normalize_answer(answer: str) -> str:
     for letter in letters:
         upper_letter = letter.upper()
         # Only accept A-F as valid answer choices (most exams use A-D, some use A-F)
-        if upper_letter in 'ABCDEF' and upper_letter not in seen:
+        if upper_letter in "ABCDEF" and upper_letter not in seen:
             valid_letters.append(upper_letter)
             seen.add(upper_letter)
 
     # Sort alphabetically
     valid_letters.sort()
 
-    return ''.join(valid_letters) if valid_letters else stripped
+    return "".join(valid_letters) if valid_letters else stripped
 
 
 def normalize_ground_truth(ground_truth: Any) -> str:
@@ -1629,7 +1836,7 @@ def normalize_ground_truth(ground_truth: Any) -> str:
                 s = str(g).strip()
                 if s:
                     str_elements.append(s.upper())
-        return ''.join(sorted(set(str_elements)))
+        return "".join(sorted(set(str_elements)))
 
     # Handle falsy values explicitly (0, "", etc.)
     if ground_truth is None:
@@ -1651,9 +1858,9 @@ def normalize_ground_truth(ground_truth: Any) -> str:
 # Boxed Format Detection
 # =============================================================================
 
+
 def check_boxed_format(
-    completion: str,
-    format_config: Optional[FormatConfig] = None
+    completion: str, format_config: Optional[FormatConfig] = None
 ) -> Tuple[float, Dict[str, Any]]:
     """
     Check if completion uses \\boxed{} format (or configured alternative) correctly.
@@ -1680,13 +1887,13 @@ def check_boxed_format(
 
     # Check each accepted boxed format
     for boxed_fmt in format_config.get_all_boxed_formats():
-        match = re.match(r'\\(\w+)\{\}', boxed_fmt)
+        match = re.match(r"\\(\w+)\{\}", boxed_fmt)
         if not match:
             continue
         cmd = match.group(1)
 
         # Find the boxed pattern
-        boxed_match = re.search(rf'\\{cmd}\{{([^}}]*)\}}', completion, re.IGNORECASE)
+        boxed_match = re.search(rf"\\{cmd}\{{([^}}]*)\}}", completion, re.IGNORECASE)
 
         if boxed_match:
             content = boxed_match.group(1).strip()
@@ -1694,9 +1901,9 @@ def check_boxed_format(
             # Check if content is non-empty and valid
             if content:
                 # Check for exam letters (A-Z)
-                letters = re.findall(r'[A-Za-z]', content)
+                letters = re.findall(r"[A-Za-z]", content)
                 # Check for numeric/math content
-                has_numeric = bool(re.search(r'[\d\.\-\+]', content))
+                has_numeric = bool(re.search(r"[\d\.\-\+]", content))
 
                 if letters or has_numeric or len(content) > 0:
                     return 1.0, {
@@ -1705,7 +1912,7 @@ def check_boxed_format(
                         "boxed_format": boxed_fmt,
                         "has_letters": bool(letters),
                         "has_numeric": has_numeric,
-                        "valid": True
+                        "valid": True,
                     }
 
             # Has boxed but content is empty
@@ -1714,14 +1921,14 @@ def check_boxed_format(
                 "boxed_content": content,
                 "boxed_format": boxed_fmt,
                 "valid": False,
-                "reason": "empty_content"
+                "reason": "empty_content",
             }
 
     # No boxed format found
     return 0.0, {
         "has_boxed": False,
         "reason": "no_boxed_found",
-        "expected_formats": format_config.get_all_boxed_formats()
+        "expected_formats": format_config.get_all_boxed_formats(),
     }
 
 
@@ -1729,9 +1936,9 @@ def check_boxed_format(
 # Format Checking
 # =============================================================================
 
+
 def check_format_compliance(
-    completion: str,
-    format_config: Optional[FormatConfig] = None
+    completion: str, format_config: Optional[FormatConfig] = None
 ) -> Tuple[float, Dict[str, Any]]:
     """
     Check if completion follows expected format structure.
@@ -1761,8 +1968,8 @@ def check_format_compliance(
     think_tag_found = None
 
     for tag in format_config.get_all_think_tags():
-        open_tag = f'<{tag.lower()}>'
-        close_tag = f'</{tag.lower()}>'
+        open_tag = f"<{tag.lower()}>"
+        close_tag = f"</{tag.lower()}>"
 
         if open_tag in lower_completion and close_tag in lower_completion:
             think_valid = True
@@ -1774,8 +1981,8 @@ def check_format_compliance(
     answer_tag_found = None
 
     if format_config.answer_tag:
-        open_tag = f'<{format_config.answer_tag.lower()}>'
-        close_tag = f'</{format_config.answer_tag.lower()}>'
+        open_tag = f"<{format_config.answer_tag.lower()}>"
+        close_tag = f"</{format_config.answer_tag.lower()}>"
 
         answer_valid = open_tag in lower_completion and close_tag in lower_completion
         if answer_valid:
@@ -1784,15 +1991,15 @@ def check_format_compliance(
     # Check proper ordering: thinking should end before boxed starts
     proper_order = True
     if think_valid and think_tag_found:
-        close_tag = f'</{think_tag_found.lower()}>'
+        close_tag = f"</{think_tag_found.lower()}>"
         think_end_pos = lower_completion.rfind(close_tag)
 
         # Check against all boxed formats
         for boxed_fmt in format_config.get_all_boxed_formats():
-            match = re.match(r'\\(\w+)\{\}', boxed_fmt)
+            match = re.match(r"\\(\w+)\{\}", boxed_fmt)
             if match:
                 cmd = match.group(1).lower()
-                boxed_pos = lower_completion.find(f'\\{cmd}{{')
+                boxed_pos = lower_completion.find(f"\\{cmd}{{")
                 if boxed_pos != -1 and think_end_pos > boxed_pos:
                     proper_order = False
                     break
@@ -1825,13 +2032,12 @@ def check_format_compliance(
         "answer_tag_found": answer_tag_found,
         "expected_answer_tag": format_config.answer_tag,
         "proper_order": proper_order,
-        "score": score
+        "score": score,
     }
 
 
 def check_reasoning_quality(
-    completion: str,
-    format_config: Optional[FormatConfig] = None
+    completion: str, format_config: Optional[FormatConfig] = None
 ) -> Tuple[float, Dict[str, Any]]:
     """
     Check if thinking section has substantive content.
@@ -1846,11 +2052,7 @@ def check_reasoning_quality(
         (score, details) tuple with word counts for length penalty calculation
     """
     if not isinstance(completion, str) or not completion:
-        return 0.0, {
-            "error": "empty_or_invalid_completion",
-            "thinking_words": 0,
-            "answer_words": 0
-        }
+        return 0.0, {"error": "empty_or_invalid_completion", "thinking_words": 0, "answer_words": 0}
 
     if format_config is None:
         format_config = DEFAULT_FORMAT_CONFIG
@@ -1869,7 +2071,7 @@ def check_reasoning_quality(
     else:
         # Fall back to dynamic regex (slow path)
         for tag in format_config.get_all_think_tags():
-            pattern = rf'<{tag}>(.*?)</{tag}>'
+            pattern = rf"<{tag}>(.*?)</{tag}>"
             matches = re.findall(pattern, completion, re.IGNORECASE | re.DOTALL)
             if matches:
                 for m in matches:
@@ -1882,10 +2084,10 @@ def check_reasoning_quality(
     # Find end of boxed content
     lower_completion = completion.lower()
     for fmt in format_config.get_all_boxed_formats():
-        match = re.match(r'\\(\w+)\{\}', fmt)
+        match = re.match(r"\\(\w+)\{\}", fmt)
         if match:
             cmd = match.group(1).lower()
-            boxed_match = re.search(rf'\\{cmd}\{{[^}}]*\}}', lower_completion)
+            boxed_match = re.search(rf"\\{cmd}\{{[^}}]*\}}", lower_completion)
             if boxed_match:
                 boxed_end_pos = boxed_match.end()
                 break
@@ -1899,7 +2101,7 @@ def check_reasoning_quality(
             "has_thinking": False,
             "reason": "no_think_tags",
             "thinking_words": 0,
-            "answer_words": answer_words
+            "answer_words": answer_words,
         }
 
     # Use the longest thinking section
@@ -1913,7 +2115,7 @@ def check_reasoning_quality(
             "reason": "empty_think_content",
             "thinking_words": 0,  # FIX #11: Removed redundant "word_count" key
             "answer_words": answer_words,
-            "tag_used": tag_used
+            "tag_used": tag_used,
         }
 
     # Quality indicators - use efficient word counting
@@ -1922,13 +2124,23 @@ def check_reasoning_quality(
 
     # Check for analysis keywords (case-insensitive, efficient)
     thinking_lower = thinking.lower()
-    has_analysis = any(kw in thinking_lower for kw in
-        ('because', 'since', 'therefore', 'thus', 'means', 'implies', 'incorrect', 'correct'))
+    has_analysis = any(
+        kw in thinking_lower
+        for kw in (
+            "because",
+            "since",
+            "therefore",
+            "thus",
+            "means",
+            "implies",
+            "incorrect",
+            "correct",
+        )
+    )
 
-    has_options = bool(re.search(
-        r'(option [a-z]|choice [a-z]|\b[a-z]\)|\b[a-z]\.)',
-        thinking_lower
-    ))
+    has_options = bool(
+        re.search(r"(option [a-z]|choice [a-z]|\b[a-z]\)|\b[a-z]\.)", thinking_lower)
+    )
 
     # Score calculation
     score = 0.0
@@ -1958,13 +2170,14 @@ def check_reasoning_quality(
         "has_analysis": has_analysis,
         "has_options": has_options,
         "tag_used": tag_used,
-        "score": min(score, 1.0)
+        "score": min(score, 1.0),
     }
 
 
 # =============================================================================
 # Accuracy Reward with possible_boxed_answers Support
 # =============================================================================
+
 
 def _parse_numeric(value: str) -> Optional[float]:
     """
@@ -1991,7 +2204,7 @@ def _parse_numeric(value: str) -> Optional[float]:
         return None
 
     # FIX #12: Handle percentages
-    if value.endswith('%'):
+    if value.endswith("%"):
         try:
             return float(value[:-1]) / 100
         except ValueError:
@@ -2005,7 +2218,7 @@ def _parse_numeric(value: str) -> Optional[float]:
 
     # Try fraction
     try:
-        if '/' in value:
+        if "/" in value:
             return float(Fraction(value))
     except (ValueError, ZeroDivisionError):
         pass
@@ -2014,8 +2227,7 @@ def _parse_numeric(value: str) -> Optional[float]:
 
 
 def check_answer_match(
-    model_answer: str,
-    possible_answers: List[Any]
+    model_answer: str, possible_answers: List[Any]
 ) -> Tuple[bool, Optional[str]]:
     """
     Check if model_answer matches any of the possible answers.
@@ -2033,7 +2245,9 @@ def check_answer_match(
         (matched, matched_answer) - True and the matched answer, or False and None
     """
     if not model_answer or not possible_answers:
-        _logger.debug(f"check_answer_match: empty input model='{model_answer}', possible={possible_answers}")
+        _logger.debug(
+            f"check_answer_match: empty input model='{model_answer}', possible={possible_answers}"
+        )
         return False, None
 
     model_clean = model_answer.strip()
@@ -2058,7 +2272,9 @@ def check_answer_match(
         # Strategy 2: Normalized match (for exam letters like "BC" == "CB")
         if model_normalized and answer_normalized:
             if model_normalized == answer_normalized:
-                _logger.debug(f"check_answer_match: MATCH (normalized) '{model_normalized}' == '{answer_normalized}'")
+                _logger.debug(
+                    f"check_answer_match: MATCH (normalized) '{model_normalized}' == '{answer_normalized}'"
+                )
                 return True, answer_clean
 
         # Strategy 3: Numeric/value match with reasonable tolerance
@@ -2069,7 +2285,9 @@ def check_answer_match(
             # Use relative tolerance for larger numbers, absolute for small
             if answer_num == 0:
                 if abs(model_num) < 1e-6:
-                    _logger.debug(f"check_answer_match: MATCH (numeric zero) {model_num} ≈ {answer_num}")
+                    _logger.debug(
+                        f"check_answer_match: MATCH (numeric zero) {model_num} ≈ {answer_num}"
+                    )
                     return True, answer_clean
             else:
                 relative_diff = abs(model_num - answer_num) / abs(answer_num)
@@ -2085,7 +2303,7 @@ def compute_accuracy_reward(
     completion: str,
     ground_truth: Any = None,
     possible_boxed_answers: Optional[List[Any]] = None,
-    partial_credit: bool = True
+    partial_credit: bool = True,
 ) -> Tuple[float, Dict[str, Any]]:
     """
     Compute accuracy reward by comparing extracted answer to ground truth.
@@ -2112,12 +2330,12 @@ def compute_accuracy_reward(
     is_exam_style = False
     if possible_boxed_answers:
         for ans in possible_boxed_answers:
-            if ans is not None and re.match(r'^[A-Za-z\s,&]+$', str(ans).replace('and', '')):
+            if ans is not None and re.match(r"^[A-Za-z\s,&]+$", str(ans).replace("and", "")):
                 is_exam_style = True
                 break
     elif ground_truth is not None:
         gt_str = str(ground_truth)
-        if re.match(r'^[A-Za-z\s,&]+$', gt_str.replace('and', '')):
+        if re.match(r"^[A-Za-z\s,&]+$", gt_str.replace("and", "")):
             is_exam_style = True
 
     # Extract answer from completion
@@ -2131,7 +2349,7 @@ def compute_accuracy_reward(
             "skipped": True,
             "reason": "empty_possible_boxed_answers",
             "model_answer": model_answer,  # Still report what was extracted
-            "correct": None  # Unknown - no ground truth to compare
+            "correct": None,  # Unknown - no ground truth to compare
         }
 
     if model_answer is None:
@@ -2140,13 +2358,15 @@ def compute_accuracy_reward(
             "model_answer": None,
             "correct_answer": ground_truth,
             "possible_answers": possible_boxed_answers,
-            "correct": False
+            "correct": False,
         }
 
     # Match against possible_boxed_answers if provided
     if possible_boxed_answers:
         matched, matched_answer = check_answer_match(model_answer, possible_boxed_answers)
-        _logger.debug(f"Answer match: {matched}, matched_answer: {matched_answer}, from possible: {possible_boxed_answers}")
+        _logger.debug(
+            f"Answer match: {matched}, matched_answer: {matched_answer}, from possible: {possible_boxed_answers}"
+        )
 
         if matched:
             return 1.0, {
@@ -2154,7 +2374,7 @@ def compute_accuracy_reward(
                 "matched_answer": matched_answer,
                 "possible_answers": possible_boxed_answers,
                 "correct": True,
-                "match_type": "possible_boxed_answers"
+                "match_type": "possible_boxed_answers",
             }
         else:
             # Wrong answer - check for partial credit on multi-answer
@@ -2166,7 +2386,9 @@ def compute_accuracy_reward(
                 # If ground truth is a single letter (e.g., "A"), model is either right or wrong.
                 # Answering "ACF" for gt="A" is WRONG, not partially right.
                 # Partial credit only makes sense when gt itself has multiple letters (e.g., "BD").
-                gt_normalized = normalize_answer(str(ground_truth)) if ground_truth is not None else ""
+                gt_normalized = (
+                    normalize_answer(str(ground_truth)) if ground_truth is not None else ""
+                )
                 is_multi_answer_question = len(gt_normalized) > 1
 
                 # Only apply letter-based partial credit if model answer has letters
@@ -2211,14 +2433,14 @@ def compute_accuracy_reward(
                         "possible_answers": possible_boxed_answers,
                         "correct": False,
                         "match_type": "partial",
-                        "partial_score": best_partial
+                        "partial_score": best_partial,
                     }
 
             return 0.0, {
                 "model_answer": model_answer,
                 "possible_answers": possible_boxed_answers,
                 "correct": False,
-                "match_type": "wrong"
+                "match_type": "wrong",
             }
 
     # Fallback to ground_truth comparison
@@ -2228,19 +2450,24 @@ def compute_accuracy_reward(
             "model_answer": model_answer,
             "correct_answer": None,
             "correct": None,
-            "reason": "no_ground_truth"
+            "reason": "no_ground_truth",
         }
 
-    correct_answer = normalize_ground_truth(ground_truth) if is_exam_style else str(ground_truth).strip()
+    correct_answer = (
+        normalize_ground_truth(ground_truth) if is_exam_style else str(ground_truth).strip()
+    )
     model_normalized = normalize_answer(model_answer) if is_exam_style else model_answer.strip()
 
     # Exact match
-    if model_normalized == correct_answer or model_answer.strip().lower() == str(ground_truth).strip().lower():
+    if (
+        model_normalized == correct_answer
+        or model_answer.strip().lower() == str(ground_truth).strip().lower()
+    ):
         return 1.0, {
             "model_answer": model_answer,
             "correct_answer": correct_answer,
             "correct": True,
-            "match_type": "exact"
+            "match_type": "exact",
         }
 
     # Partial match for multi-answer questions ONLY (exam style)
@@ -2265,7 +2492,7 @@ def compute_accuracy_reward(
                         "partial_score": partial_score,
                         "matched": list(model_set & correct_set),
                         "missed": list(correct_set - model_set),
-                        "extra": list(model_set - correct_set)
+                        "extra": list(model_set - correct_set),
                     }
 
     # Wrong answer
@@ -2273,7 +2500,7 @@ def compute_accuracy_reward(
         "model_answer": model_answer,
         "correct_answer": correct_answer,
         "correct": False,
-        "match_type": "wrong"
+        "match_type": "wrong",
     }
 
 
@@ -2281,13 +2508,14 @@ def compute_accuracy_reward(
 # Composite Reward
 # =============================================================================
 
+
 def compute_reward(
     completion: str,
     ground_truth: Any = None,
     weights: Optional[RewardWeights] = None,
     possible_boxed_answers: Optional[List[Any]] = None,
     format_config: Optional[FormatConfig] = None,
-    prompt_text: str = ""
+    prompt_text: str = "",
 ) -> Tuple[float, Dict[str, Any]]:
     """
     Compute composite reward for GRPO training.
@@ -2335,14 +2563,16 @@ def compute_reward(
     if format_config is None:
         format_config = DEFAULT_FORMAT_CONFIG
 
-    _logger.debug(f"weights: acc={weights.accuracy}, box={weights.boxed}, fmt={weights.format}, reas={weights.reasoning}")
-    _logger.debug(f"format_config: strict={format_config.strict_format}, gaming={format_config.detect_gaming}")
+    _logger.debug(
+        f"weights: acc={weights.accuracy}, box={weights.boxed}, fmt={weights.format}, reas={weights.reasoning}"
+    )
+    _logger.debug(
+        f"format_config: strict={format_config.strict_format}, gaming={format_config.detect_gaming}"
+    )
 
     # Compute individual rewards
     accuracy_score, accuracy_details = compute_accuracy_reward(
-        completion,
-        ground_truth,
-        possible_boxed_answers
+        completion, ground_truth, possible_boxed_answers
     )
     _logger.debug(f"accuracy_score={accuracy_score:.4f}, details={accuracy_details}")
 
@@ -2353,7 +2583,9 @@ def compute_reward(
     _logger.debug(f"format_score={format_score:.4f}")
 
     reasoning_score, reasoning_details = check_reasoning_quality(completion, format_config)
-    _logger.debug(f"reasoning_score={reasoning_score:.4f}, words={reasoning_details.get('thinking_words', 0)}")
+    _logger.debug(
+        f"reasoning_score={reasoning_score:.4f}, words={reasoning_details.get('thinking_words', 0)}"
+    )
 
     # Combined format score for gate check (average of boxed + format + reasoning)
     combined_format_score = (boxed_score + format_score + reasoning_score) / 3.0
@@ -2367,14 +2599,18 @@ def compute_reward(
             # Format failed gate - penalize accuracy
             gated_accuracy_score = accuracy_score * format_config.format_gate_penalty
             format_gate_applied = True
-            _logger.debug(f"FORMAT GATE APPLIED: combined={combined_format_score:.4f} < threshold={format_config.format_gate_threshold}, gated_acc={gated_accuracy_score:.4f}")
+            _logger.debug(
+                f"FORMAT GATE APPLIED: combined={combined_format_score:.4f} < threshold={format_config.format_gate_threshold}, gated_acc={gated_accuracy_score:.4f}"
+            )
 
     # === Length penalty calculation ===
-    thinking_words = reasoning_details.get('thinking_words', 0)
-    answer_words = reasoning_details.get('answer_words', 0)
+    thinking_words = reasoning_details.get("thinking_words", 0)
+    answer_words = reasoning_details.get("answer_words", 0)
     length_penalty = format_config.compute_length_penalty(thinking_words, answer_words)
     if length_penalty > 0:
-        _logger.debug(f"length_penalty={length_penalty:.4f} (thinking={thinking_words}, answer={answer_words})")
+        _logger.debug(
+            f"length_penalty={length_penalty:.4f} (thinking={thinking_words}, answer={answer_words})"
+        )
 
     # === Bad words penalty calculation ===
     bad_words_penalty, bad_words_counts = format_config.compute_bad_words_penalty(completion)
@@ -2382,13 +2618,15 @@ def compute_reward(
         _logger.debug(f"bad_words_penalty={bad_words_penalty:.4f}, counts={bad_words_counts}")
 
     # === Repeat words penalty calculation ===
-    repeat_words_penalty, repeat_words_counts = format_config.compute_repeat_words_penalty(completion)
+    repeat_words_penalty, repeat_words_counts = format_config.compute_repeat_words_penalty(
+        completion
+    )
 
     # === Gaming detection penalty calculation ===
     # Extract thinking text and boxed answer for gaming detection
     thinking_text = ""
     for tag in format_config.get_all_think_tags():
-        match = re.search(rf'<{tag}>(.*?)</{tag}>', completion, re.IGNORECASE | re.DOTALL)
+        match = re.search(rf"<{tag}>(.*?)</{tag}>", completion, re.IGNORECASE | re.DOTALL)
         if match:
             thinking_text = match.group(1)
             break
@@ -2410,10 +2648,10 @@ def compute_reward(
     # FIX #1: Removed the no-op "/ total_weight * total_weight"
     total_weight = weights.total()
     raw_total = (
-        weights.accuracy * gated_accuracy_score +
-        weights.boxed * boxed_score +
-        weights.format * format_score +
-        weights.reasoning * reasoning_score
+        weights.accuracy * gated_accuracy_score
+        + weights.boxed * boxed_score
+        + weights.format * format_score
+        + weights.reasoning * reasoning_score
     ) / total_weight  # Now correctly normalizes to [0, 1]
 
     # Apply penalty to TOTAL reward (not just accuracy)
@@ -2426,18 +2664,28 @@ def compute_reward(
     final_total = format_config.smooth_reward(clamped_total)
 
     # Log final result
-    _logger.info(f"REWARD: {final_total:.4f} (raw={raw_total:.4f}, penalized={penalized_total:.4f}, clamped={clamped_total:.4f})")
-    _logger.debug(f"  components: acc={gated_accuracy_score:.4f}*{weights.accuracy}, box={boxed_score:.4f}*{weights.boxed}, fmt={format_score:.4f}*{weights.format}, reas={reasoning_score:.4f}*{weights.reasoning}")
-    _logger.debug(f"  penalties: total={total_penalty:.4f}, multiplier={penalty_multiplier:.4f} (len={length_penalty:.4f}, bad={bad_words_penalty:.4f}, rep={repeat_words_penalty:.4f}, game={gaming_penalty:.4f})")
-    if accuracy_details.get('correct'):
-        _logger.info(f"  CORRECT: model='{accuracy_details.get('model_answer')}' matches gt='{ground_truth}'")
+    _logger.info(
+        f"REWARD: {final_total:.4f} (raw={raw_total:.4f}, penalized={penalized_total:.4f}, clamped={clamped_total:.4f})"
+    )
+    _logger.debug(
+        f"  components: acc={gated_accuracy_score:.4f}*{weights.accuracy}, box={boxed_score:.4f}*{weights.boxed}, fmt={format_score:.4f}*{weights.format}, reas={reasoning_score:.4f}*{weights.reasoning}"
+    )
+    _logger.debug(
+        f"  penalties: total={total_penalty:.4f}, multiplier={penalty_multiplier:.4f} (len={length_penalty:.4f}, bad={bad_words_penalty:.4f}, rep={repeat_words_penalty:.4f}, game={gaming_penalty:.4f})"
+    )
+    if accuracy_details.get("correct"):
+        _logger.info(
+            f"  CORRECT: model='{accuracy_details.get('model_answer')}' matches gt='{ground_truth}'"
+        )
     else:
-        _logger.debug(f"  INCORRECT: model='{accuracy_details.get('model_answer')}' != gt='{ground_truth}'")
+        _logger.debug(
+            f"  INCORRECT: model='{accuracy_details.get('model_answer')}' != gt='{ground_truth}'"
+        )
 
     # Build details dict
     details = {
         "total_score": final_total,
-        "raw_score": raw_total,           # Pre-penalty weighted sum
+        "raw_score": raw_total,  # Pre-penalty weighted sum
         "penalized_score": penalized_total,  # After penalty multiplier
         "clamped_score": clamped_total,
         "format_gate": {
@@ -2446,28 +2694,28 @@ def compute_reward(
             "threshold": format_config.format_gate_threshold,
             "gate_applied": format_gate_applied,
             "pre_gate_accuracy": accuracy_score,
-            "post_gate_accuracy": gated_accuracy_score
+            "post_gate_accuracy": gated_accuracy_score,
         },
         "accuracy": {
             "score": accuracy_score,
             "original_score": accuracy_score,
             "weighted": weights.accuracy * gated_accuracy_score,
-            "details": accuracy_details
+            "details": accuracy_details,
         },
         "boxed": {
             "score": boxed_score,
             "weighted": weights.boxed * boxed_score,
-            "details": boxed_details
+            "details": boxed_details,
         },
         "format": {
             "score": format_score,
             "weighted": weights.format * format_score,
-            "details": format_details
+            "details": format_details,
         },
         "reasoning": {
             "score": reasoning_score,
             "weighted": weights.reasoning * reasoning_score,
-            "details": reasoning_details
+            "details": reasoning_details,
         },
         "penalties": {
             "total": total_penalty,
@@ -2476,14 +2724,14 @@ def compute_reward(
             "bad_words": bad_words_penalty,
             "bad_words_counts": bad_words_counts,
             "repeat_words": repeat_words_penalty,
-            "repeat_words_counts": repeat_words_counts
+            "repeat_words_counts": repeat_words_counts,
         },
         "gaming_penalty": gaming_details,
         "smoothing": {
             "method": format_config.reward_smoothing,
             "pre_smooth": clamped_total,
-            "post_smooth": final_total
-        }
+            "post_smooth": final_total,
+        },
     }
 
     # Log to structured logger
@@ -2494,7 +2742,7 @@ def compute_reward(
         prompt_text=prompt_text,
         details=details,
         final_reward=final_total,
-        weights=weights
+        weights=weights,
     )
 
     return final_total, details
@@ -2504,13 +2752,14 @@ def compute_reward(
 # Batch Processing Utilities
 # =============================================================================
 
+
 def compute_batch_rewards(
     completions: List[str],
     ground_truths: List[Any],
     weights: Optional[RewardWeights] = None,
     possible_boxed_answers_list: Optional[List[Optional[List[Any]]]] = None,
     format_config: Optional[FormatConfig] = None,
-    prompt_texts: Optional[List[str]] = None
+    prompt_texts: Optional[List[str]] = None,
 ) -> Tuple[List[float], List[Dict[str, Any]], Dict[str, Any]]:
     """
     Compute rewards for a batch of completions.
@@ -2527,7 +2776,9 @@ def compute_batch_rewards(
         (scores, details_list, summary) tuple
     """
     if len(completions) != len(ground_truths):
-        raise ValueError(f"Completions ({len(completions)}) and ground_truths ({len(ground_truths)}) must have same length")
+        raise ValueError(
+            f"Completions ({len(completions)}) and ground_truths ({len(ground_truths)}) must have same length"
+        )
 
     scores = []
     details_list = []
@@ -2548,13 +2799,13 @@ def compute_batch_rewards(
             weights=weights,
             possible_boxed_answers=pba,
             format_config=format_config,
-            prompt_text=prompt
+            prompt_text=prompt,
         )
 
         scores.append(score)
         details_list.append(details)
 
-        if details.get('accuracy', {}).get('details', {}).get('correct'):
+        if details.get("accuracy", {}).get("details", {}).get("correct"):
             correct_count += 1
 
     # Summary statistics
@@ -2567,44 +2818,40 @@ def compute_batch_rewards(
         m = mean(lst)
         return (sum((x - m) ** 2 for x in lst) / len(lst)) ** 0.5
 
-    accuracy_scores = [d['accuracy']['score'] for d in details_list]
-    boxed_scores = [d['boxed']['score'] for d in details_list]
-    format_scores = [d['format']['score'] for d in details_list]
-    reasoning_scores = [d['reasoning']['score'] for d in details_list]
+    accuracy_scores = [d["accuracy"]["score"] for d in details_list]
+    boxed_scores = [d["boxed"]["score"] for d in details_list]
+    format_scores = [d["format"]["score"] for d in details_list]
+    reasoning_scores = [d["reasoning"]["score"] for d in details_list]
 
     n = len(completions)
-    n_valid = sum(1 for d in details_list if not d['accuracy']['details'].get('skipped', False))
-    no_answer_count = sum(1 for d in details_list if d['accuracy']['details'].get('error') == 'no_answer_extracted')
-    skipped_count = sum(1 for d in details_list if d['accuracy']['details'].get('skipped', False))
-    boxed_count = sum(1 for d in details_list if d['boxed']['details'].get('has_boxed', False))
+    n_valid = sum(1 for d in details_list if not d["accuracy"]["details"].get("skipped", False))
+    no_answer_count = sum(
+        1 for d in details_list if d["accuracy"]["details"].get("error") == "no_answer_extracted"
+    )
+    skipped_count = sum(1 for d in details_list if d["accuracy"]["details"].get("skipped", False))
+    boxed_count = sum(1 for d in details_list if d["boxed"]["details"].get("has_boxed", False))
 
     summary = {
         "n_samples": n,
         "n_valid": n_valid,
         "correct_count": correct_count,
-
         # Overall
         "reward_mean": mean(scores),
         "reward_std": std(scores),
-
         # Accuracy
         "accuracy_reward_mean": mean(accuracy_scores),
         "accuracy_reward_std": std(accuracy_scores),
         "accuracy_rate": correct_count / n_valid if n_valid > 0 else 0.0,
-
         # Boxed format
         "boxed_reward_mean": mean(boxed_scores),
         "boxed_reward_std": std(boxed_scores),
         "boxed_usage_rate": boxed_count / n if n > 0 else 0.0,
-
         # Format
         "format_reward_mean": mean(format_scores),
         "format_reward_std": std(format_scores),
-
         # Reasoning
         "reasoning_reward_mean": mean(reasoning_scores),
         "reasoning_reward_std": std(reasoning_scores),
-
         # Issues
         "no_answer_rate": no_answer_count / n if n > 0 else 0.0,
         "skipped_accuracy_rate": skipped_count / n if n > 0 else 0.0,
@@ -2626,11 +2873,12 @@ def compute_batch_rewards(
 # Register with the reward registry for CLI usage:
 #   mlx-grpo --reward-functions exam_combined_reward_func ...
 
+
 def exam_accuracy_reward_func(
     prompts: List[str],
     completions: List[str],
     answers: List[str],
-    types: Optional[List[str]] = None
+    types: Optional[List[str]] = None,
 ) -> List[float]:
     """
     GRPO-compatible exam accuracy reward function.
@@ -2650,9 +2898,7 @@ def exam_accuracy_reward_func(
     scores = []
     for completion, answer in zip(completions, answers):
         acc_score, _ = compute_accuracy_reward(
-            completion=completion,
-            ground_truth=answer,
-            possible_boxed_answers=None
+            completion=completion, ground_truth=answer, possible_boxed_answers=None
         )
         scores.append(acc_score)
     return scores
@@ -2662,7 +2908,7 @@ def exam_format_reward_func(
     prompts: List[str],
     completions: List[str],
     answers: List[str],
-    types: Optional[List[str]] = None
+    types: Optional[List[str]] = None,
 ) -> List[float]:
     """
     GRPO-compatible exam format reward function.
@@ -2700,7 +2946,7 @@ def exam_reasoning_reward_func(
     prompts: List[str],
     completions: List[str],
     answers: List[str],
-    types: Optional[List[str]] = None
+    types: Optional[List[str]] = None,
 ) -> List[float]:
     """
     GRPO-compatible exam reasoning quality reward function.
@@ -2733,7 +2979,7 @@ def exam_combined_reward_func(
     prompts: List[str],
     completions: List[str],
     answers: List[str],
-    types: Optional[List[str]] = None
+    types: Optional[List[str]] = None,
 ) -> List[float]:
     """
     GRPO-compatible exam combined reward function.
@@ -2767,7 +3013,7 @@ def exam_combined_reward_func(
             weights=None,  # Use defaults
             possible_boxed_answers=None,
             format_config=None,  # Use defaults
-            prompt_text=prompt
+            prompt_text=prompt,
         )
         scores.append(score)
 
@@ -2778,7 +3024,7 @@ def exam_strict_format_reward_func(
     prompts: List[str],
     completions: List[str],
     answers: List[str],
-    types: Optional[List[str]] = None
+    types: Optional[List[str]] = None,
 ) -> List[float]:
     """
     GRPO-compatible exam strict format reward function.
@@ -2805,8 +3051,8 @@ def exam_strict_format_reward_func(
         boxed_score, boxed_details = check_boxed_format(completion, format_config)
         format_score, format_details = check_format_compliance(completion, format_config)
 
-        has_boxed = boxed_details.get('has_boxed', False)
-        has_think = format_details.get('has_think_tags', False)
+        has_boxed = boxed_details.get("has_boxed", False)
+        has_think = format_details.get("has_think_tags", False)
 
         # Binary: both must be present
         if has_boxed and has_think:
@@ -2820,6 +3066,7 @@ def exam_strict_format_reward_func(
 # =============================================================================
 # Register with GRPO Reward Registry
 # =============================================================================
+
 
 def _register_exam_rewards():
     """Register exam reward functions with the GRPO reward registry."""

@@ -12,13 +12,13 @@ Key Design Principles:
     4. Information-theoretic grounding
 """
 
-import os
-import math
 import logging
+import math
+import os
+import threading
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
-from typing import Optional, Dict, Any, Tuple
-import threading
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -295,13 +295,9 @@ class RewardConfig:
         warnings = []
 
         # Check weight sums
-        correctness_weights = (
-            self.factual_weight + self.semantic_weight + self.answer_match_weight
-        )
+        correctness_weights = self.factual_weight + self.semantic_weight + self.answer_match_weight
         if abs(correctness_weights - 0.80) > 0.1:
-            warnings.append(
-                f"Correctness weights sum to {correctness_weights:.2f}, expected ~0.80"
-            )
+            warnings.append(f"Correctness weights sum to {correctness_weights:.2f}, expected ~0.80")
 
         quality_weights = (
             self.reasoning_depth_weight
@@ -310,9 +306,7 @@ class RewardConfig:
             + self.step_clarity_weight
         )
         if abs(quality_weights - 0.75) > 0.1:
-            warnings.append(
-                f"Quality weights sum to {quality_weights:.2f}, expected ~0.75"
-            )
+            warnings.append(f"Quality weights sum to {quality_weights:.2f}, expected ~0.75")
 
         # Check gate configurations
         for gate_name in [
@@ -323,9 +317,7 @@ class RewardConfig:
         ]:
             gate = getattr(self, gate_name)
             if gate.floor >= gate.ceiling:
-                errors.append(
-                    f"{gate_name}: floor ({gate.floor}) >= ceiling ({gate.ceiling})"
-                )
+                errors.append(f"{gate_name}: floor ({gate.floor}) >= ceiling ({gate.ceiling})")
             if gate.threshold < 0 or gate.threshold > 1:
                 errors.append(f"{gate_name}: threshold ({gate.threshold}) not in [0,1]")
 

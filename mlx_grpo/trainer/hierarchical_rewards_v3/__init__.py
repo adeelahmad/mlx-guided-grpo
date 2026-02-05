@@ -85,52 +85,45 @@ Version: 3.0.0
 __version__ = "3.0.0"
 __author__ = "Hierarchical Rewards System"
 
+# Core data structures
+from .core.base import (
+    AntiGamingResult,
+    BatchResult,
+    ComponentResult,
+    DiagnosticInfo,
+    LevelResult,
+    RewardResult,
+)
+
 # Core configuration
 from .core.config import (
-    RewardConfig,
     GateConfig,
+    RewardConfig,
     get_default_config,
 )
 
-# Core data structures
-from .core.base import (
-    RewardResult,
-    LevelResult,
-    ComponentResult,
-    DiagnosticInfo,
-    AntiGamingResult,
-    BatchResult,
-)
-
 # Registry
-from .core.registry import (
-    register_reward_function as register_reward,
-    get_reward_function as get_reward,
-    list_reward_functions as list_rewards,
-)
+from .core.registry import get_reward_function as get_reward
+from .core.registry import list_reward_functions as list_rewards
+from .core.registry import register_reward_function as register_reward
 
 # Main reward functions
-from .rewards import (
-    # Main aggregator
-    hierarchical_reward,
-    batch_hierarchical_reward,
-    quick_score,
-    detailed_analysis,
-    # Individual level rewards
-    compute_foundation_reward,
-    compute_correctness_reward,
-    compute_quality_reward,
-    compute_polish_reward,
-    # Utilities
-    compute_soft_gate,
-    ensure_ranking_signal,
+from .rewards import (  # Main aggregator; Individual level rewards; Utilities
     GateState,
+    batch_hierarchical_reward,
+    compute_correctness_reward,
+    compute_foundation_reward,
+    compute_polish_reward,
+    compute_quality_reward,
+    compute_soft_gate,
+    detailed_analysis,
+    ensure_ranking_signal,
+    hierarchical_reward,
+    quick_score,
 )
 
 # Utility modules (for advanced users)
-from .utils import text_processing
-from .utils import information_theory
-from .utils import structural_analysis
+from .utils import information_theory, structural_analysis, text_processing
 
 __all__ = [
     # Version info

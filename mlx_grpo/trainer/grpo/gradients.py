@@ -8,6 +8,7 @@ SOLID Principles:
 - Single Responsibility: Only handles gradient manipulation
 - Open/Closed: Can be extended with new gradient strategies
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -65,7 +66,7 @@ def project_gradient_toward_sft(
         return grpo_grad_flat
 
     sft_flat = mx.concatenate(sft_vec)
-    sft_norm = mx.sqrt(mx.sum(sft_flat ** 2)) + 1e-8
+    sft_norm = mx.sqrt(mx.sum(sft_flat**2)) + 1e-8
     sft_direction = sft_flat / sft_norm
 
     # Add SFT direction component to each GRPO gradient
@@ -75,7 +76,7 @@ def project_gradient_toward_sft(
     for key in keys_order:
         shape = sft_grad_flat[key].shape
         size = sft_grad_flat[key].size
-        sft_component = sft_direction[offset:offset + size].reshape(shape)
+        sft_component = sft_direction[offset : offset + size].reshape(shape)
         result[key] = grpo_grad_flat[key] + strength * sft_component * float(sft_norm)
         offset += size
 

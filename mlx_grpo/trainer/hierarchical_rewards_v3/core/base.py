@@ -12,10 +12,10 @@ Design Principles:
     - Hierarchical structure matching reward levels
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional, Tuple
-from enum import Enum
 import json
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class RewardLevel(Enum):
@@ -104,9 +104,7 @@ class LevelResult:
             "gate_value": round(self.gate_value, 4),
             "passed_soft_gate": self.passed_soft_gate,
             "upstream_gate": round(self.upstream_gate, 4),
-            "components": {
-                name: comp.to_dict() for name, comp in self.components.items()
-            },
+            "components": {name: comp.to_dict() for name, comp in self.components.items()},
             "diagnostics": self.diagnostics,
         }
 
@@ -360,9 +358,7 @@ class RewardResult:
                     f"gate={level.gate_value:.3f}"
                 )
                 for name, comp in level.components.items():
-                    lines.append(
-                        f"  - {name}: {comp.raw_score:.3f} (w={comp.weight:.2f})"
-                    )
+                    lines.append(f"  - {name}: {comp.raw_score:.3f} (w={comp.weight:.2f})")
 
         if self.anti_gaming and self.anti_gaming.any_gaming_detected:
             lines.append("-" * 60)
@@ -370,9 +366,7 @@ class RewardResult:
             if self.anti_gaming.repetition_detected:
                 lines.append(f"  - Repetition: {self.anti_gaming.repetition_ratio:.3f}")
             if self.anti_gaming.keyword_stuffing_detected:
-                lines.append(
-                    f"  - Keyword stuffing: {self.anti_gaming.keyword_density:.3f}"
-                )
+                lines.append(f"  - Keyword stuffing: {self.anti_gaming.keyword_density:.3f}")
 
         lines.append("=" * 60)
         return "\n".join(lines)

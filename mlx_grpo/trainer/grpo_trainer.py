@@ -16,6 +16,7 @@ All utility functions are imported from the grpo/ submodules:
 - grpo.loss: Loss computation and reward calculation
 - grpo.gradients: Gradient manipulation
 """
+
 from __future__ import annotations
 
 import gc as _gc
@@ -36,43 +37,48 @@ from tqdm import tqdm
 # Import from base module
 from .base import BaseTrainingArgs, grad_checkpoint
 
+# Import exam reward function
+from .exam_reward import RewardWeights as ExamRewardWeights
+from .exam_reward import compute_accuracy_reward as exam_accuracy_reward
+from .exam_reward import compute_reward as exam_compute_reward
+from .exam_reward import (
+    extract_answer_from_completion,
+)
+
 # Import all utilities from grpo submodules
 from .grpo import (
-    # Debug utilities
-    safe_eval as _safe_eval,
-    safe_clear as _safe_clear,
-    iter_start as _iter_start,
-    iter_end as _iter_end,
-    # Checkpoint management
+    EXIT_CODE_CORRUPTION,
     CheckpointManager,
-    # Configuration
     GRPOTrainingArgs,
-    # Layer utilities
-    parse_layer_spec,
-    create_layer_gradient_mask,
+    build_curriculum_prefix,
+    calculate_rewards_and_advantages,
     combine_dual_gradients,
+    compute_curriculum_ratio,
+    compute_gradient_alignment,
+    compute_sft_anchor_loss,
+    create_layer_gradient_mask,
     detect_thinking_answer_positions,
     freeze_model_layers,
-    # Curriculum learning
-    compute_curriculum_ratio,
-    build_curriculum_prefix,
-    compute_gradient_alignment,
-    interpolate_gradients,
-    # Generation
     generate_grpo,
-    # Loss and rewards
-    grpo_loss,
     get_per_token_logps,
     get_per_token_logps_with_prompt_mask,
-    calculate_rewards_and_advantages,
-    compute_sft_anchor_loss,
-    # Gradient manipulation
+    grpo_loss,
+    interpolate_gradients,
+)
+from .grpo import iter_end as _iter_end
+from .grpo import iter_start as _iter_start
+from .grpo import (
+    log_completion_warnings,
+    parse_layer_spec,
     project_gradient_toward_sft,
-    # Corruption detection
-    EXIT_CODE_CORRUPTION,
+)
+from .grpo import safe_clear as _safe_clear
+from .grpo import (
+    safe_eval as _safe_eval,  # Debug utilities; Checkpoint management; Configuration; Layer utilities; Curriculum learning; Generation; Loss and rewards; Gradient manipulation; Corruption detection
+)
+from .grpo import (
     validate_adapter_weights,
     validate_and_exit_on_corruption,
-    log_completion_warnings,
 )
 
 # Import reward functions
@@ -85,17 +91,9 @@ from .grpo_reward_functions import (
     r1_strict_format_reward_func,
 )
 
-# Import exam reward function
-from .exam_reward import (
-    compute_reward as exam_compute_reward,
-    compute_accuracy_reward as exam_accuracy_reward,
-    extract_answer_from_completion,
-    RewardWeights as ExamRewardWeights,
-)
-
 # Import logging and monitoring
 from .rollout_logger import RolloutLogger, RolloutLoggerConfig
-from .training_monitor import TrainingMonitor, MonitorConfig, ThresholdConfig
+from .training_monitor import MonitorConfig, ThresholdConfig, TrainingMonitor
 
 if TYPE_CHECKING:
     from typing import Any, Callable, Dict, Tuple
@@ -129,11 +127,7 @@ def iterate_grpo_batches(dataset, batch_size, max_seq_length, train=False):
     """
     has_types = isinstance(dataset[0], tuple) and len(dataset[0]) == 5
 
-    if (
-        not dataset
-        or not isinstance(dataset[0], tuple)
-        or (not has_types and len(dataset[0]) != 4)
-    ):
+    if not dataset or not isinstance(dataset[0], tuple) or (not has_types and len(dataset[0]) != 4):
         raise ValueError(
             "Dataset must be list of (prompt_tokens, answer_tokens, prompt_str, answer_str[, type]) tuples"
         )
@@ -204,7 +198,7 @@ def evaluate_grpo(
     iterate_batches: Callable = iterate_grpo_batches,
     grpo_loss_type: str = "grpo",
     importance_sampling_level: str = "token",
-    end_answer_token: str = "</answer>"
+    end_answer_token: str = "</answer>",
 ):
     """Evaluate GRPO model on a dataset.
 
@@ -258,17 +252,19 @@ def evaluate_grpo(
     ):
         prompt_tokens, answer_tokens, prompt_text, answer_text, type_info = batch
 
-        all_completions, all_completion_texts, batch_indices, _, _, all_scaffold_token_counts = generate_grpo(
-            model=model,
-            tokenizer=tokenizer,
-            prompt_tokens=prompt_tokens,
-            max_tokens=max_tokens,
-            group_size=group_size,
-            temperature=temperature,
-            batch_size=batch_size,
-            end_token=end_answer_token,
-            type_info=type_info,
-            generation_sub_batch_size=1,  # Generate one at a time to avoid GPU timeout
+        all_completions, all_completion_texts, batch_indices, _, _, all_scaffold_token_counts = (
+            generate_grpo(
+                model=model,
+                tokenizer=tokenizer,
+                prompt_tokens=prompt_tokens,
+                max_tokens=max_tokens,
+                group_size=group_size,
+                temperature=temperature,
+                batch_size=batch_size,
+                end_token=end_answer_token,
+                type_info=type_info,
+                generation_sub_batch_size=1,  # Generate one at a time to avoid GPU timeout
+            )
         )
 
         # Prepare expanded data for reward calculation
@@ -292,12 +288,12 @@ def evaluate_grpo(
                 ordered_completions.append(all_completions[idx])
                 ordered_completion_texts.append(all_completion_texts[idx])
                 ordered_batch_indices.append(prompt_idx)
-                ordered_scaffold_token_counts.append(all_scaffold_token_counts[idx] if idx < len(all_scaffold_token_counts) else 0)
+                ordered_scaffold_token_counts.append(
+                    all_scaffold_token_counts[idx] if idx < len(all_scaffold_token_counts) else 0
+                )
                 expanded_answers.append(answer_text[prompt_idx])
                 expanded_prompts.append(prompt_text[prompt_idx])
-                expanded_types.append(
-                    type_info[prompt_idx] if type_info is not None else None
-                )
+                expanded_types.append(type_info[prompt_idx] if type_info is not None else None)
 
         # Calculate rewards and advantages
         advantages, reward_metrics, _ = calculate_rewards_and_advantages(
@@ -332,7 +328,12 @@ def evaluate_grpo(
         )
 
         del all_completions, all_completion_texts, batch_indices, all_scaffold_token_counts
-        del ordered_completions, ordered_completion_texts, ordered_batch_indices, ordered_scaffold_token_counts
+        del (
+            ordered_completions,
+            ordered_completion_texts,
+            ordered_batch_indices,
+            ordered_scaffold_token_counts,
+        )
         del advantages, reward_metrics
         mx.clear_cache()
 
@@ -374,7 +375,7 @@ def train_grpo(
     loss_fn: Callable = grpo_loss,
     iterate_batches: Callable = iterate_grpo_batches,
     training_callback: TrainingCallback = None,
-    end_answer_token: str = "</answer>"
+    end_answer_token: str = "</answer>",
 ):
     """Train a model using GRPO (Group Relative Policy Optimization).
 
@@ -431,10 +432,16 @@ def train_grpo(
 
     # Warn about memory usage with gradient accumulation
     if grad_accum_steps > 1 and rank == 0:
-        tqdm.write(f"\nWarning: Gradient accumulation ({grad_accum_steps} steps) increases memory usage.")
-        tqdm.write(f"   If OOM occurs, try: --gradient-accumulation-steps 1 or reduce --max-completion-length")
+        tqdm.write(
+            f"\nWarning: Gradient accumulation ({grad_accum_steps} steps) increases memory usage."
+        )
+        tqdm.write(
+            f"   If OOM occurs, try: --gradient-accumulation-steps 1 or reduce --max-completion-length"
+        )
         effective_batch = args.batch_size * grad_accum_steps * args.group_size
-        tqdm.write(f"   Effective batch size: {args.batch_size} x {grad_accum_steps} x {args.group_size} = {effective_batch}")
+        tqdm.write(
+            f"   Effective batch size: {args.batch_size} x {grad_accum_steps} x {args.group_size} = {effective_batch}"
+        )
 
     state = [model.state, optimizer.state, mx.random.state]
 
@@ -453,7 +460,9 @@ def train_grpo(
             higher_is_better=args.checkpoint_metric_higher_is_better,
         )
         checkpoint_manager.scan_existing()
-        tqdm.write(f"Checkpoint management enabled: keep_last={args.keep_last_n_checkpoints}, keep_best={args.keep_best_n_checkpoints}")
+        tqdm.write(
+            f"Checkpoint management enabled: keep_last={args.keep_last_n_checkpoints}, keep_best={args.keep_best_n_checkpoints}"
+        )
 
     # Initialize Training Monitor
     training_monitor = None
@@ -489,10 +498,12 @@ def train_grpo(
             reward_key="total_rewards_mean",
             kl_key="kl",
         )
-        tqdm.write(f"Training monitor enabled: KL warning={args.monitor_kl_warning}, critical={args.monitor_kl_critical}")
+        tqdm.write(
+            f"Training monitor enabled: KL warning={args.monitor_kl_warning}, critical={args.monitor_kl_critical}"
+        )
 
     # Layer Selection Setup (CGS)
-    num_layers = len(model.layers) if hasattr(model, 'layers') else 0
+    num_layers = len(model.layers) if hasattr(model, "layers") else 0
     train_layer_set = None
     thinking_layer_set = None
     answer_layer_set = None
@@ -501,7 +512,9 @@ def train_grpo(
     if args.thinking_layers is not None or args.answer_layers is not None:
         # Dual-gradient mode (CGS)
         if args.thinking_layers is None or args.answer_layers is None:
-            raise ValueError("Both --thinking-layers and --answer-layers must be specified for dual-gradient mode")
+            raise ValueError(
+                "Both --thinking-layers and --answer-layers must be specified for dual-gradient mode"
+            )
 
         thinking_layer_set = parse_layer_spec(args.thinking_layers, num_layers)
         answer_layer_set = parse_layer_spec(args.answer_layers, num_layers)
@@ -514,8 +527,12 @@ def train_grpo(
             tqdm.write(f"\n{'='*60}")
             tqdm.write("Dual-Gradient Mode (CGS) Enabled")
             tqdm.write(f"{'='*60}")
-            tqdm.write(f"  Thinking layers ({len(thinking_layer_set)}): {sorted(thinking_layer_set)[:10]}{'...' if len(thinking_layer_set) > 10 else ''}")
-            tqdm.write(f"  Answer layers ({len(answer_layer_set)}): {sorted(answer_layer_set)[:10]}{'...' if len(answer_layer_set) > 10 else ''}")
+            tqdm.write(
+                f"  Thinking layers ({len(thinking_layer_set)}): {sorted(thinking_layer_set)[:10]}{'...' if len(thinking_layer_set) > 10 else ''}"
+            )
+            tqdm.write(
+                f"  Answer layers ({len(answer_layer_set)}): {sorted(answer_layer_set)[:10]}{'...' if len(answer_layer_set) > 10 else ''}"
+            )
             overlap = thinking_layer_set & answer_layer_set
             if overlap:
                 tqdm.write(f"  Overlapping layers: {sorted(overlap)}")
@@ -539,10 +556,12 @@ def train_grpo(
             tqdm.write(f"\n{'='*60}")
             tqdm.write("SFT Anchor + Gradient Alignment Enabled")
             tqdm.write(f"{'='*60}")
-            tqdm.write(f"  SFT anchor layers: {sorted(sft_anchor_layers) if sft_anchor_layers else 'all'}")
+            tqdm.write(
+                f"  SFT anchor layers: {sorted(sft_anchor_layers) if sft_anchor_layers else 'all'}"
+            )
             tqdm.write(f"  SFT LR multiplier: {args.sft_anchor_lr_multiplier}")
             tqdm.write(f"  Gradient alignment mode: {args.gradient_alignment_mode}")
-            if args.gradient_alignment_mode != 'none':
+            if args.gradient_alignment_mode != "none":
                 tqdm.write(f"  Alignment weight: {args.gradient_alignment_weight}")
             tqdm.write(f"{'='*60}\n")
 
@@ -553,7 +572,11 @@ def train_grpo(
         tqdm.write(f"{'='*60}")
         tqdm.write(f"  Think markers: {args.think_start_token} ... {args.think_end_token}")
         tqdm.write(f"  Continuation tokens: {args.continuation_tokens}")
-        force_ratio = args.continuation_force_answer_ratio if args.continuation_force_answer_ratio is not None else 0.8
+        force_ratio = (
+            args.continuation_force_answer_ratio
+            if args.continuation_force_answer_ratio is not None
+            else 0.8
+        )
         tqdm.write(f"  Force answer ratio: {force_ratio:.1%}")
         tqdm.write(f"{'='*60}\n")
 
@@ -562,8 +585,12 @@ def train_grpo(
         tqdm.write(f"\n{'='*60}")
         tqdm.write("Curriculum Thinking Scaffolding Enabled")
         tqdm.write(f"{'='*60}")
-        tqdm.write(f"  Start ratio: {args.curriculum_start_ratio:.0%} thinking (warmup: {args.curriculum_warmup_iters} iters)")
-        tqdm.write(f"  End ratio: {args.curriculum_end_ratio:.0%} thinking (after taper: {args.curriculum_taper_iters} iters)")
+        tqdm.write(
+            f"  Start ratio: {args.curriculum_start_ratio:.0%} thinking (warmup: {args.curriculum_warmup_iters} iters)"
+        )
+        tqdm.write(
+            f"  End ratio: {args.curriculum_end_ratio:.0%} thinking (after taper: {args.curriculum_taper_iters} iters)"
+        )
         tqdm.write(f"{'='*60}\n")
 
     # Multi-Curriculum Rollout
@@ -572,9 +599,13 @@ def train_grpo(
         tqdm.write("Multi-Curriculum Rollout Enabled")
         tqdm.write(f"{'='*60}")
         if args.curriculum_scaffold_levels:
-            levels = [float(x.strip()) for x in args.curriculum_scaffold_levels.split(',')]
+            levels = [float(x.strip()) for x in args.curriculum_scaffold_levels.split(",")]
         else:
-            levels = [1.0 - k/(args.group_size-1) for k in range(args.group_size)] if args.group_size > 1 else [0.0]
+            levels = (
+                [1.0 - k / (args.group_size - 1) for k in range(args.group_size)]
+                if args.group_size > 1
+                else [0.0]
+            )
         tqdm.write(f"  Scaffold levels per group: {[f'{l:.0%}' for l in levels]}")
         tqdm.write(f"  Group size: {args.group_size}")
         tqdm.write(f"{'='*60}\n")
@@ -620,10 +651,17 @@ def train_grpo(
         # Parse scaffold levels for multi-curriculum rollout
         scaffold_levels = None
         if args.multi_curriculum_rollout and args.curriculum_scaffold_levels:
-            scaffold_levels = [float(x.strip()) for x in args.curriculum_scaffold_levels.split(',')]
+            scaffold_levels = [float(x.strip()) for x in args.curriculum_scaffold_levels.split(",")]
 
         # Generate completions
-        all_completions, all_completion_texts, batch_indices, two_phase_flags, all_scaffold_ratios, all_scaffold_token_counts = generate_grpo(
+        (
+            all_completions,
+            all_completion_texts,
+            batch_indices,
+            two_phase_flags,
+            all_scaffold_ratios,
+            all_scaffold_token_counts,
+        ) = generate_grpo(
             model=model,
             tokenizer=tokenizer,
             prompt_tokens=prompt_tokens,
@@ -637,7 +675,11 @@ def train_grpo(
             think_end=args.think_end_token,
             answer_end=end_answer_token,
             continuation_tokens=args.continuation_tokens,
-            continuation_force_answer_ratio=args.continuation_force_answer_ratio if args.continuation_force_answer_ratio is not None else 0.5,
+            continuation_force_answer_ratio=(
+                args.continuation_force_answer_ratio
+                if args.continuation_force_answer_ratio is not None
+                else 0.5
+            ),
             curriculum_prefixes=curriculum_prefixes,
             target_completions=answer_text,
             multi_curriculum_rollout=args.multi_curriculum_rollout,
@@ -646,12 +688,35 @@ def train_grpo(
             curriculum_preserve_intuition=args.curriculum_preserve_intuition,
             type_info=type_info,
             cross_sample_max_tokens=args.cross_sample_max_completion_length,
-            smart_truncation_enabled=args.smart_truncation_enabled if args.smart_truncation_enabled is not None else False,
-            max_extreme_tokens=args.max_extreme_tokens if args.max_extreme_tokens is not None else 1024,
-            truncation_brevity_marker=args.truncation_brevity_marker if args.truncation_brevity_marker is not None else "[truncated due to brevity]",
-            truncation_keep_start_ratio=args.truncation_keep_start_ratio if args.truncation_keep_start_ratio is not None else 0.3,
-            truncation_keep_end_ratio=args.truncation_keep_end_ratio if args.truncation_keep_end_ratio is not None else 0.5,
-            generation_sub_batch_size=args.generation_sub_batch_size if hasattr(args, 'generation_sub_batch_size') and args.generation_sub_batch_size is not None else 1,
+            smart_truncation_enabled=(
+                args.smart_truncation_enabled
+                if args.smart_truncation_enabled is not None
+                else False
+            ),
+            max_extreme_tokens=(
+                args.max_extreme_tokens if args.max_extreme_tokens is not None else 1024
+            ),
+            truncation_brevity_marker=(
+                args.truncation_brevity_marker
+                if args.truncation_brevity_marker is not None
+                else "[truncated due to brevity]"
+            ),
+            truncation_keep_start_ratio=(
+                args.truncation_keep_start_ratio
+                if args.truncation_keep_start_ratio is not None
+                else 0.3
+            ),
+            truncation_keep_end_ratio=(
+                args.truncation_keep_end_ratio
+                if args.truncation_keep_end_ratio is not None
+                else 0.5
+            ),
+            generation_sub_batch_size=(
+                args.generation_sub_batch_size
+                if hasattr(args, "generation_sub_batch_size")
+                and args.generation_sub_batch_size is not None
+                else 1
+            ),
         )
 
         _safe_eval(all_completions, checkpoint="generation_complete")
@@ -684,15 +749,25 @@ def train_grpo(
                 ordered_completion_texts.append(all_completion_texts[idx])
                 ordered_batch_indices.append(prompt_idx)
                 ordered_two_phase_flags.append(two_phase_flags[idx])
-                ordered_scaffold_levels.append(all_scaffold_ratios[idx] if idx < len(all_scaffold_ratios) else 0.0)
-                ordered_scaffold_token_counts.append(all_scaffold_token_counts[idx] if idx < len(all_scaffold_token_counts) else 0)
+                ordered_scaffold_levels.append(
+                    all_scaffold_ratios[idx] if idx < len(all_scaffold_ratios) else 0.0
+                )
+                ordered_scaffold_token_counts.append(
+                    all_scaffold_token_counts[idx] if idx < len(all_scaffold_token_counts) else 0
+                )
                 expanded_answers.append(answer_text[prompt_idx])
                 expanded_prompts.append(prompt_text[prompt_idx])
-                expanded_types.append(
-                    type_info[prompt_idx] if type_info is not None else None
-                )
+                expanded_types.append(type_info[prompt_idx] if type_info is not None else None)
 
-        del all_completions, all_completion_texts, batch_indices, grouped_completions, two_phase_flags, all_scaffold_ratios, all_scaffold_token_counts
+        del (
+            all_completions,
+            all_completion_texts,
+            batch_indices,
+            grouped_completions,
+            two_phase_flags,
+            all_scaffold_ratios,
+            all_scaffold_token_counts,
+        )
         mx.clear_cache()
 
         # Calculate rewards and advantages
@@ -704,7 +779,7 @@ def train_grpo(
             expanded_types=expanded_types,
             batch_indices=ordered_batch_indices,
             unique_prompt_indices=unique_prompt_indices,
-            reward_weights=args.reward_weights if hasattr(args, 'reward_weights') else None,
+            reward_weights=args.reward_weights if hasattr(args, "reward_weights") else None,
             scaffold_ratios=ordered_scaffold_levels if args.multi_curriculum_rollout else None,
             scaffold_penalty_weight=args.scaffold_penalty_weight,
             scaffold_penalty_mode=args.scaffold_penalty_mode,
@@ -739,11 +814,11 @@ def train_grpo(
                 sft_grad = tree_unflatten(list(sft_grad_flat_masked.items()))
                 sft_grad_flat = sft_grad_flat_masked
 
-            sft_metrics['sft_anchor_loss'] = float(sft_loss)
+            sft_metrics["sft_anchor_loss"] = float(sft_loss)
 
             lr_mult = args.sft_anchor_lr_multiplier
             sft_grad_flat = {k: v * lr_mult for k, v in sft_grad_flat.items()}
-            sft_metrics['sft_lr_multiplier'] = lr_mult
+            sft_metrics["sft_lr_multiplier"] = lr_mult
             _safe_eval(*sft_grad_flat.values(), checkpoint="sft_grad")
             _safe_clear("sft_anchor")
 
@@ -774,8 +849,8 @@ def train_grpo(
             _safe_eval(thinking_mask_batch, answer_mask_batch, checkpoint="mask_batch")
 
             combined_weight_mask = (
-                args.thinking_gradient_weight * thinking_mask_batch +
-                args.answer_gradient_weight * answer_mask_batch
+                args.thinking_gradient_weight * thinking_mask_batch
+                + args.answer_gradient_weight * answer_mask_batch
             )
             total_weight = args.thinking_gradient_weight + args.answer_gradient_weight
             combined_weight_mask = combined_weight_mask / (total_weight / 2.0)
@@ -805,7 +880,7 @@ def train_grpo(
             del grad
             mx.clear_cache()
 
-            layer_pattern = re.compile(r'model\.layers\.(\d+)\.')
+            layer_pattern = re.compile(r"model\.layers\.(\d+)\.")
             masked_grad = {}
 
             for key, g in grad_flat.items():
@@ -830,8 +905,8 @@ def train_grpo(
 
             thinking_ratio = float(thinking_mask_batch.sum() / max(thinking_mask_batch.size, 1))
             answer_ratio = float(answer_mask_batch.sum() / max(answer_mask_batch.size, 1))
-            metrics['thinking_token_ratio'] = thinking_ratio
-            metrics['answer_token_ratio'] = answer_ratio
+            metrics["thinking_token_ratio"] = thinking_ratio
+            metrics["answer_token_ratio"] = answer_ratio
 
         else:
             # Standard mode
@@ -864,35 +939,39 @@ def train_grpo(
             grpo_grad_flat = dict(tree_flatten(grad))
 
             alignment_metrics = compute_gradient_alignment(sft_grad_flat, grpo_grad_flat)
-            metrics['grad_cosine_similarity'] = alignment_metrics['cosine_similarity']
-            metrics['grad_kl_divergence'] = alignment_metrics['kl_divergence']
-            metrics['sft_grad_norm'] = alignment_metrics['sft_norm']
-            metrics['grpo_grad_norm'] = alignment_metrics['grpo_norm']
+            metrics["grad_cosine_similarity"] = alignment_metrics["cosine_similarity"]
+            metrics["grad_kl_divergence"] = alignment_metrics["kl_divergence"]
+            metrics["sft_grad_norm"] = alignment_metrics["sft_norm"]
+            metrics["grpo_grad_norm"] = alignment_metrics["grpo_norm"]
 
-            if args.gradient_alignment_mode == 'interpolate':
+            if args.gradient_alignment_mode == "interpolate":
                 alpha = args.gradient_alignment_weight
                 blended_grad_flat = interpolate_gradients(sft_grad_flat, grpo_grad_flat, alpha)
                 grad = tree_unflatten(list(blended_grad_flat.items()))
-                metrics['grad_blend_alpha'] = alpha
+                metrics["grad_blend_alpha"] = alpha
 
-            elif args.gradient_alignment_mode == 'project':
+            elif args.gradient_alignment_mode == "project":
                 strength = args.gradient_alignment_weight
-                projected_grad_flat = project_gradient_toward_sft(grpo_grad_flat, sft_grad_flat, strength)
+                projected_grad_flat = project_gradient_toward_sft(
+                    grpo_grad_flat, sft_grad_flat, strength
+                )
                 grad = tree_unflatten(list(projected_grad_flat.items()))
-                metrics['grad_project_strength'] = strength
+                metrics["grad_project_strength"] = strength
 
-            elif args.gradient_alignment_mode == 'kl':
-                kl = max(alignment_metrics['kl_divergence'], 0.0)
+            elif args.gradient_alignment_mode == "kl":
+                kl = max(alignment_metrics["kl_divergence"], 0.0)
                 scale_factor = 1.0 / (1.0 + args.gradient_alignment_weight * kl)
                 grad = tree_map(lambda g: g * scale_factor, grad)
-                metrics['grad_kl_scale'] = scale_factor
+                metrics["grad_kl_scale"] = scale_factor
 
-            elif args.gradient_alignment_mode == 'cosine':
-                cos_sim = alignment_metrics['cosine_similarity']
+            elif args.gradient_alignment_mode == "cosine":
+                cos_sim = alignment_metrics["cosine_similarity"]
                 scale_factor = max(0.1, (1.0 + cos_sim) / 2.0)
-                scale_factor = (1 - args.gradient_alignment_weight) + args.gradient_alignment_weight * scale_factor
+                scale_factor = (
+                    1 - args.gradient_alignment_weight
+                ) + args.gradient_alignment_weight * scale_factor
                 grad = tree_map(lambda g: g * scale_factor, grad)
-                metrics['grad_cosine_scale'] = scale_factor
+                metrics["grad_cosine_scale"] = scale_factor
 
             del sft_grad_flat, grpo_grad_flat
             mx.clear_cache()
@@ -900,28 +979,34 @@ def train_grpo(
         metrics.update(sft_metrics)
 
         if curriculum_ratio is not None:
-            metrics['curriculum_ratio'] = curriculum_ratio
+            metrics["curriculum_ratio"] = curriculum_ratio
             if curriculum_prefixes:
                 avg_prefix_len = sum(len(p) for p in curriculum_prefixes) / len(curriculum_prefixes)
-                metrics['curriculum_prefix_len'] = avg_prefix_len
+                metrics["curriculum_prefix_len"] = avg_prefix_len
 
         if args.multi_curriculum_rollout:
-            metrics['multi_curriculum_enabled'] = 1.0
+            metrics["multi_curriculum_enabled"] = 1.0
             if scaffold_levels:
-                metrics['scaffold_levels_min'] = min(scaffold_levels)
-                metrics['scaffold_levels_max'] = max(scaffold_levels)
+                metrics["scaffold_levels_min"] = min(scaffold_levels)
+                metrics["scaffold_levels_max"] = max(scaffold_levels)
 
         # Log rollouts
         if rollout_logger and current_iteration[0] % args.log_rollouts_every_n_steps == 0:
-            rewards_per_func = {k: v for k, v in per_completion_rewards.items() if k not in ("total", "exam_details")}
-            total_rewards = per_completion_rewards.get("total", [0.0] * len(ordered_completion_texts))
+            rewards_per_func = {
+                k: v
+                for k, v in per_completion_rewards.items()
+                if k not in ("total", "exam_details")
+            }
+            total_rewards = per_completion_rewards.get(
+                "total", [0.0] * len(ordered_completion_texts)
+            )
             exam_details_list = per_completion_rewards.get("exam_details", None)
 
             advantages_list = []
             for adv in advantages:
-                if hasattr(adv, 'item'):
+                if hasattr(adv, "item"):
                     advantages_list.append(float(adv.item()))
-                elif hasattr(adv, 'tolist'):
+                elif hasattr(adv, "tolist"):
                     advantages_list.append(float(adv.tolist()))
                 else:
                     advantages_list.append(float(adv) if adv is not None else 0.0)
@@ -930,9 +1015,7 @@ def train_grpo(
                 len(prompt_tokens[idx]) if idx < len(prompt_tokens) else 0
                 for idx in ordered_batch_indices
             ]
-            completion_token_counts = [
-                len(c.split()) if c else 0 for c in ordered_completion_texts
-            ]
+            completion_token_counts = [len(c.split()) if c else 0 for c in ordered_completion_texts]
 
             rollout_logger.log_rollout(
                 iteration=current_iteration[0],
@@ -957,10 +1040,21 @@ def train_grpo(
         # Add scaffold masking metrics
         total_scaffold_tokens = sum(ordered_scaffold_token_counts)
         if total_scaffold_tokens > 0:
-            metrics['scaffold_tokens_masked'] = total_scaffold_tokens
-            metrics['scaffold_tokens_per_completion'] = total_scaffold_tokens / len(ordered_scaffold_token_counts) if ordered_scaffold_token_counts else 0
+            metrics["scaffold_tokens_masked"] = total_scaffold_tokens
+            metrics["scaffold_tokens_per_completion"] = (
+                total_scaffold_tokens / len(ordered_scaffold_token_counts)
+                if ordered_scaffold_token_counts
+                else 0
+            )
 
-        del ordered_completions, ordered_completion_texts, ordered_batch_indices, ordered_two_phase_flags, ordered_scaffold_levels, ordered_scaffold_token_counts
+        del (
+            ordered_completions,
+            ordered_completion_texts,
+            ordered_batch_indices,
+            ordered_two_phase_flags,
+            ordered_scaffold_levels,
+            ordered_scaffold_token_counts,
+        )
         del advantages, reward_metrics
         mx.clear_cache()
 
@@ -993,12 +1087,12 @@ def train_grpo(
 
         if training_state_file.exists():
             try:
-                with open(training_state_file, 'r') as f:
+                with open(training_state_file, "r") as f:
                     training_state = json.load(f)
-                wandb_run_id = training_state.get('wandb_run_id', None)
-                saved_tokens = training_state.get('trained_tokens', 0)
-                saved_lr = training_state.get('learning_rate', None)
-                saved_iteration = training_state.get('iteration', 0)
+                wandb_run_id = training_state.get("wandb_run_id", None)
+                saved_tokens = training_state.get("trained_tokens", 0)
+                saved_lr = training_state.get("learning_rate", None)
+                saved_iteration = training_state.get("iteration", 0)
 
                 if wandb_run_id:
                     tqdm.write(f"Found WandB run ID: {wandb_run_id}")
@@ -1021,7 +1115,9 @@ def train_grpo(
                         optimizer.state = tree_unflatten(list(opt_state.items()))
                         tqdm.write(f"Loaded optimizer state from {optimizer_state_file}")
                     except Exception as unflatten_err:
-                        tqdm.write(f"  Warning: Could not unflatten optimizer state: {unflatten_err}")
+                        tqdm.write(
+                            f"  Warning: Could not unflatten optimizer state: {unflatten_err}"
+                        )
             except Exception as e:
                 tqdm.write(f"Warning: Failed to load optimizer state: {e}")
 
@@ -1093,7 +1189,7 @@ def train_grpo(
 
     cached_batch = None
     batch_repeat_count = 0
-    samples_per_scaffold = getattr(args, 'samples_per_scaffold', 1) or 1
+    samples_per_scaffold = getattr(args, "samples_per_scaffold", 1) or 1
 
     try:
         for it in pbar:
@@ -1130,16 +1226,25 @@ def train_grpo(
                 if "Command buffer execution failed" in error_msg or "METAL" in error_msg:
                     consecutive_failures += 1
                     tqdm.write(f"\nWarning: Metal GPU crash at iter {it}: {error_msg[:100]}...")
-                    tqdm.write(f"   Consecutive failures: {consecutive_failures}/{max_consecutive_failures}")
+                    tqdm.write(
+                        f"   Consecutive failures: {consecutive_failures}/{max_consecutive_failures}"
+                    )
 
                     if rank == 0:
                         try:
-                            emergency_path = Path(args.adapter_file).parent / f"emergency_{it:07d}_adapters.safetensors"
+                            emergency_path = (
+                                Path(args.adapter_file).parent
+                                / f"emergency_{it:07d}_adapters.safetensors"
+                            )
                             adapter_weights = dict(tree_flatten(model.trainable_parameters()))
                             # Validate emergency checkpoint (warn but save anyway)
-                            is_valid, corrupt_keys = validate_adapter_weights(adapter_weights, raise_on_error=False)
+                            is_valid, corrupt_keys = validate_adapter_weights(
+                                adapter_weights, raise_on_error=False
+                            )
                             if not is_valid:
-                                tqdm.write(f"   WARNING: Emergency checkpoint may be corrupted: {corrupt_keys[:3]}")
+                                tqdm.write(
+                                    f"   WARNING: Emergency checkpoint may be corrupted: {corrupt_keys[:3]}"
+                                )
                             mx.save_safetensors(str(emergency_path), adapter_weights)
                             tqdm.write(f"   Saved emergency checkpoint: {emergency_path}")
                         except Exception as save_error:
@@ -1181,9 +1286,7 @@ def train_grpo(
                 stop = time.perf_counter()
 
                 train_loss = mx.distributed.all_sum(losses).item() / (steps * world_size)
-                avg_metrics = {
-                    k: v / (steps * world_size) for k, v in accumulated_metrics.items()
-                }
+                avg_metrics = {k: v / (steps * world_size) for k, v in accumulated_metrics.items()}
                 n_tokens = mx.distributed.all_sum(n_tokens).item()
                 learning_rate = optimizer.learning_rate.item()
                 it_sec = args.steps_per_report / (stop - start)
@@ -1219,7 +1322,7 @@ def train_grpo(
                             )
 
                     loss_str = f"Loss: {train_loss:.3f}"
-                    if 'thinking_token_ratio' in avg_metrics:
+                    if "thinking_token_ratio" in avg_metrics:
                         loss_str += f" [CGS: think={avg_metrics['thinking_token_ratio']:.1%}, answer={avg_metrics['answer_token_ratio']:.1%}]"
 
                     tqdm.write(
@@ -1277,7 +1380,10 @@ def train_grpo(
                             tqdm.write(training_monitor.get_stop_reason())
                             tqdm.write(training_monitor.get_summary())
                             adapter_weights = dict(tree_flatten(model.trainable_parameters()))
-                            emergency_path = Path(args.adapter_file).parent / f"early_stop_{it:07d}_adapters.safetensors"
+                            emergency_path = (
+                                Path(args.adapter_file).parent
+                                / f"early_stop_{it:07d}_adapters.safetensors"
+                            )
                             mx.save_safetensors(str(emergency_path), adapter_weights)
                             tqdm.write(f"Saved early stop checkpoint: {emergency_path}")
 
@@ -1285,21 +1391,23 @@ def train_grpo(
                                 adapter_dir = Path(args.adapter_file).parent
                                 optimizer_state_file = adapter_dir / "optimizer_state.safetensors"
                                 opt_state = dict(tree_flatten(optimizer.state))
-                                saveable_state = {k: v for k, v in opt_state.items() if isinstance(v, mx.array)}
+                                saveable_state = {
+                                    k: v for k, v in opt_state.items() if isinstance(v, mx.array)
+                                }
                                 if saveable_state:
                                     mx.save_safetensors(str(optimizer_state_file), saveable_state)
                                 meta_file = adapter_dir / "training_state.json"
                                 state_dict = {
-                                    'iteration': it,
-                                    'trained_tokens': trained_tokens,
-                                    'learning_rate': float(learning_rate),
-                                    'early_stopped': True,
+                                    "iteration": it,
+                                    "trained_tokens": trained_tokens,
+                                    "learning_rate": float(learning_rate),
+                                    "early_stopped": True,
                                 }
                                 if rollout_logger:
                                     wb_id = rollout_logger.get_wandb_run_id()
                                     if wb_id:
-                                        state_dict['wandb_run_id'] = wb_id
-                                with open(meta_file, 'w') as f:
+                                        state_dict["wandb_run_id"] = wb_id
+                                with open(meta_file, "w") as f:
                                     json.dump(state_dict, f)
                             except Exception as save_err:
                                 tqdm.write(f"  Warning: Could not save optimizer state: {save_err}")
@@ -1332,12 +1440,12 @@ def train_grpo(
                 validate_and_exit_on_corruption(adapter_weights, f"iter_{it}")
 
                 mx.save_safetensors(str(args.adapter_file), adapter_weights)
-                checkpoint = (
-                    Path(args.adapter_file).parent / f"{it:07d}_adapters.safetensors"
-                )
+                checkpoint = Path(args.adapter_file).parent / f"{it:07d}_adapters.safetensors"
                 mx.save_safetensors(str(checkpoint), adapter_weights)
 
-                optimizer_state_file = Path(args.adapter_file).parent / "optimizer_state.safetensors"
+                optimizer_state_file = (
+                    Path(args.adapter_file).parent / "optimizer_state.safetensors"
+                )
                 try:
                     opt_state = dict(tree_flatten(optimizer.state))
                     saveable_state = {}
@@ -1348,15 +1456,15 @@ def train_grpo(
                         mx.save_safetensors(str(optimizer_state_file), saveable_state)
                         meta_file = Path(args.adapter_file).parent / "training_state.json"
                         state_dict = {
-                            'iteration': it,
-                            'trained_tokens': trained_tokens,
-                            'learning_rate': float(learning_rate),
+                            "iteration": it,
+                            "trained_tokens": trained_tokens,
+                            "learning_rate": float(learning_rate),
                         }
                         if rollout_logger:
                             wb_id = rollout_logger.get_wandb_run_id()
                             if wb_id:
-                                state_dict['wandb_run_id'] = wb_id
-                        with open(meta_file, 'w') as f:
+                                state_dict["wandb_run_id"] = wb_id
+                        with open(meta_file, "w") as f:
                             json.dump(state_dict, f)
                 except Exception as opt_save_err:
                     tqdm.write(f"  Warning: Failed to save optimizer state: {opt_save_err}")
@@ -1392,7 +1500,10 @@ def train_grpo(
             is_valid, corrupt_keys = validate_adapter_weights(adapter_weights, raise_on_error=False)
             if not is_valid:
                 tqdm.write(f"  WARNING: Interrupt checkpoint may be corrupted: {corrupt_keys[:3]}")
-            interrupt_path = Path(args.adapter_file).parent / f"interrupted_{current_iteration[0]:07d}_adapters.safetensors"
+            interrupt_path = (
+                Path(args.adapter_file).parent
+                / f"interrupted_{current_iteration[0]:07d}_adapters.safetensors"
+            )
             mx.save_safetensors(str(interrupt_path), adapter_weights)
             tqdm.write(f"Saved interrupt checkpoint: {interrupt_path}")
 
@@ -1405,16 +1516,20 @@ def train_grpo(
                     mx.save_safetensors(str(optimizer_state_file), saveable_state)
                 meta_file = adapter_dir / "training_state.json"
                 state_dict = {
-                    'iteration': current_iteration[0],
-                    'trained_tokens': trained_tokens,
-                    'learning_rate': float(optimizer.learning_rate.item()) if hasattr(optimizer.learning_rate, 'item') else float(optimizer.learning_rate),
-                    'interrupted': True,
+                    "iteration": current_iteration[0],
+                    "trained_tokens": trained_tokens,
+                    "learning_rate": (
+                        float(optimizer.learning_rate.item())
+                        if hasattr(optimizer.learning_rate, "item")
+                        else float(optimizer.learning_rate)
+                    ),
+                    "interrupted": True,
                 }
                 if rollout_logger:
                     wb_id = rollout_logger.get_wandb_run_id()
                     if wb_id:
-                        state_dict['wandb_run_id'] = wb_id
-                with open(meta_file, 'w') as f:
+                        state_dict["wandb_run_id"] = wb_id
+                with open(meta_file, "w") as f:
                     json.dump(state_dict, f)
                 tqdm.write(f"Saved optimizer state and progress for resume")
             except Exception as save_err:
@@ -1426,10 +1541,15 @@ def train_grpo(
             try:
                 adapter_weights = dict(tree_flatten(model.trainable_parameters()))
                 # Validate crash checkpoint (warn but save anyway)
-                is_valid, corrupt_keys = validate_adapter_weights(adapter_weights, raise_on_error=False)
+                is_valid, corrupt_keys = validate_adapter_weights(
+                    adapter_weights, raise_on_error=False
+                )
                 if not is_valid:
                     tqdm.write(f"  WARNING: Crash checkpoint may be corrupted: {corrupt_keys[:3]}")
-                crash_path = Path(args.adapter_file).parent / f"crash_{current_iteration[0]:07d}_adapters.safetensors"
+                crash_path = (
+                    Path(args.adapter_file).parent
+                    / f"crash_{current_iteration[0]:07d}_adapters.safetensors"
+                )
                 mx.save_safetensors(str(crash_path), adapter_weights)
                 tqdm.write(f"Saved crash checkpoint: {crash_path}")
             except:
@@ -1512,14 +1632,17 @@ def train_grpo_with_recovery(
 
         except RuntimeError as e:
             error_msg = str(e).lower()
-            is_metal_crash = any(x in error_msg for x in [
-                "command buffer execution failed",
-                "ioaf code",
-                "metal",
-                "gpu",
-                "device reset",
-                "memory allocation failed",
-            ])
+            is_metal_crash = any(
+                x in error_msg
+                for x in [
+                    "command buffer execution failed",
+                    "ioaf code",
+                    "metal",
+                    "gpu",
+                    "device reset",
+                    "memory allocation failed",
+                ]
+            )
 
             if not is_metal_crash or not args.auto_resume_on_crash:
                 raise
@@ -1543,14 +1666,18 @@ def train_grpo_with_recovery(
             if args.adapter_file:
                 adapter_dir = Path(args.adapter_file).parent
                 checkpoints = list(adapter_dir.glob("*_adapters.safetensors"))
-                checkpoints = [c for c in checkpoints if "crash" not in c.name and "emergency" not in c.name]
+                checkpoints = [
+                    c for c in checkpoints if "crash" not in c.name and "emergency" not in c.name
+                ]
 
                 if checkpoints:
+
                     def get_iter(p):
                         try:
-                            return int(p.stem.split('_')[0])
+                            return int(p.stem.split("_")[0])
                         except:
                             return 0
+
                     checkpoints.sort(key=get_iter, reverse=True)
                     latest = checkpoints[0]
 
@@ -1564,7 +1691,7 @@ def train_grpo_with_recovery(
                         if state_file.exists():
                             with open(state_file) as f:
                                 state = json.load(f)
-                                start_iter = state.get('iteration', 0)
+                                start_iter = state.get("iteration", 0)
                                 tqdm.write(f"   Resuming from iteration {start_iter}")
                                 args.resume_from_checkpoint = True
                     except Exception as load_err:

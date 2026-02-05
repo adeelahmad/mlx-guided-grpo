@@ -10,16 +10,17 @@ This example assumes you have:
 - Expected answers for each prompt
 """
 
-from typing import List, Dict, Any, Tuple
+from typing import Any, Dict, List, Tuple
+
 import numpy as np
 
 # Import the reward system
 from hierarchical_rewards_v3 import (
-    batch_hierarchical_reward,
-    hierarchical_reward,
-    RewardConfig,
     GateConfig,
+    RewardConfig,
+    batch_hierarchical_reward,
     get_default_config,
+    hierarchical_reward,
 )
 
 
@@ -89,9 +90,7 @@ def compute_grpo_rewards(
     all_rewards = []
     all_stats = []
 
-    for prompt, completions, expected in zip(
-        prompts, completion_groups, expected_answers
-    ):
+    for prompt, completions, expected in zip(prompts, completion_groups, expected_answers):
         result = batch_hierarchical_reward(
             responses=completions,
             expected=expected,

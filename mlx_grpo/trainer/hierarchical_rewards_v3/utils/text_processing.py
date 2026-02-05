@@ -13,13 +13,13 @@ Key Features:
     - N-gram analysis
 """
 
+import logging
+import math
 import re
 import unicodedata
-import logging
-from typing import Tuple, List, Optional, Set, Dict, Any, Union
-from difflib import SequenceMatcher
 from collections import Counter
-import math
+from difflib import SequenceMatcher
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +169,7 @@ def extract_numbers(text: Union[str, List, None]) -> List[float]:
     if text is None:
         return []
     if isinstance(text, list):
-        text = ' '.join(str(t) for t in text if t is not None)
+        text = " ".join(str(t) for t in text if t is not None)
     elif not isinstance(text, str):
         text = str(text)
 
@@ -339,9 +339,7 @@ def extract_answer_content(text: str) -> str:
     ]
 
     content_lines = [
-        l
-        for l in lines
-        if not any(re.match(p, l) for p in skip_patterns) and len(l) > 1
+        l for l in lines if not any(re.match(p, l) for p in skip_patterns) and len(l) > 1
     ]
 
     if content_lines:
@@ -664,9 +662,7 @@ def calculate_ngram_repetition(text: str, n: int = 3) -> Tuple[float, List[str]]
 
     # Calculate ratio of tokens involved in repetition
     repeated_tokens = sum(
-        n * (count - 1)  # Extra occurrences
-        for ng, count in counts.items()
-        if count > 1
+        n * (count - 1) for ng, count in counts.items() if count > 1  # Extra occurrences
     )
 
     total_tokens = len(text.split())

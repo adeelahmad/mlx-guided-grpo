@@ -14,11 +14,11 @@ Key Concepts Borrowed:
 These measures help reward genuine reasoning over template exploitation.
 """
 
-import re
 import logging
-from typing import Dict, List, Tuple, Optional, Set
-from collections import defaultdict
 import math
+import re
+from collections import defaultdict
+from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +70,7 @@ def count_reasoning_steps(text: str) -> Tuple[int, List[str]]:
     for pattern in connectors:
         matches = re.findall(pattern, text, re.IGNORECASE)
         if matches:
-            markers_found.extend(
-                [str(m) if isinstance(m, str) else m[0] for m in matches]
-            )
+            markers_found.extend([str(m) if isinstance(m, str) else m[0] for m in matches])
 
     # Paragraph-based steps (each paragraph is a potential step)
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]

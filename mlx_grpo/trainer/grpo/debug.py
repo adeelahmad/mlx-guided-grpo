@@ -13,6 +13,7 @@ SOLID Principles:
 - Single Responsibility: Only handles debugging and tracing
 - Open/Closed: Can be extended with new debug modes via environment
 """
+
 from __future__ import annotations
 
 import gc

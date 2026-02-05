@@ -8,6 +8,7 @@ SOLID Principles:
 - Single Responsibility: Only handles configuration definition
 - Open/Closed: Can be extended with additional fields
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -54,7 +55,7 @@ class GRPOTrainingArgs(BaseTrainingArgs):
         default=None,
         metadata={
             "help": "For DAPO: Upper-bound epsilon value for clipping. "
-                    "If not specified, defaults to the lower-bound epsilon."
+            "If not specified, defaults to the lower-bound epsilon."
         },
     )
     max_completion_length: int = field(
@@ -65,14 +66,14 @@ class GRPOTrainingArgs(BaseTrainingArgs):
         default=1,
         metadata={
             "help": "Number of completions to generate at once. Lower values prevent GPU "
-                    "timeouts but may be slower. Set to 1 to generate one completion at a time."
+            "timeouts but may be slower. Set to 1 to generate one completion at a time."
         },
     )
     cross_sample_max_completion_length: int = field(
         default=512,
         metadata={
             "help": "Maximum completion tokens for cross-sampled examples. "
-                    "Cross-sampled examples have conversation history in the prompt."
+            "Cross-sampled examples have conversation history in the prompt."
         },
     )
     reference_model_path: str | None = field(
@@ -91,14 +92,14 @@ class GRPOTrainingArgs(BaseTrainingArgs):
         default=None,
         metadata={
             "help": "Weights for each reward function. Must match number of reward functions. "
-                    "If None, all rewards weighted equally with weight 1.0."
+            "If None, all rewards weighted equally with weight 1.0."
         },
     )
     importance_sampling_level: str | None = field(
         default=None,
         metadata={
             "help": "Controls importance sampling ratios: 'token' or 'sequence' level. "
-                    "Sequence-level often yields more stable training."
+            "Sequence-level often yields more stable training."
         },
     )
 
@@ -251,14 +252,14 @@ class GRPOTrainingArgs(BaseTrainingArgs):
         default=None,
         metadata={
             "help": "Layers for thinking token gradients. Format: '0-8'. "
-                    "If set, enables dual-gradient mode."
+            "If set, enables dual-gradient mode."
         },
     )
     answer_layers: str | None = field(
         default=None,
         metadata={
             "help": "Layers for answer token gradients. Format: '20-28'. "
-                    "Required if thinking_layers is set."
+            "Required if thinking_layers is set."
         },
     )
     thinking_gradient_weight: float = field(
@@ -291,17 +292,17 @@ class GRPOTrainingArgs(BaseTrainingArgs):
         default=0.8,
         metadata={
             "help": "Ratio of incomplete completions that force answer (add </think>). "
-                    "Rest continue naturally. Range [0.0, 1.0]. "
-                    "Mixed values let model learn that verbose thinking leads to truncation."
+            "Rest continue naturally. Range [0.0, 1.0]. "
+            "Mixed values let model learn that verbose thinking leads to truncation."
         },
     )
     two_phase_samples_per_group: int = field(
         default=-1,
         metadata={
             "help": "Max samples per group to apply two-phase recovery. "
-                    "-1 means all incomplete samples get recovery. "
-                    "E.g., group_size=4, two_phase_samples_per_group=2 means "
-                    "only 2 incomplete samples per group get 2nd phase recovery."
+            "-1 means all incomplete samples get recovery. "
+            "E.g., group_size=4, two_phase_samples_per_group=2 means "
+            "only 2 incomplete samples per group get 2nd phase recovery."
         },
     )
 
@@ -310,14 +311,14 @@ class GRPOTrainingArgs(BaseTrainingArgs):
         default=False,
         metadata={
             "help": "Enable smart truncation: let model generate until natural </think>, "
-                    "then truncate middle if over max_completion_length."
+            "then truncate middle if over max_completion_length."
         },
     )
     max_extreme_tokens: int = field(
         default=1024,
         metadata={
             "help": "Maximum tokens to generate before forcing closure. "
-                    "Should be 2-4x max_completion_length."
+            "Should be 2-4x max_completion_length."
         },
     )
     truncation_brevity_marker: str = field(
@@ -358,7 +359,9 @@ class GRPOTrainingArgs(BaseTrainingArgs):
     # ==== Curriculum Thinking Scaffolding ====
     curriculum_enabled: bool = field(
         default=False,
-        metadata={"help": "Enable curriculum thinking scaffolding (gradually remove target thinking)."},
+        metadata={
+            "help": "Enable curriculum thinking scaffolding (gradually remove target thinking)."
+        },
     )
     curriculum_start_ratio: float = field(
         default=1.0,
@@ -382,7 +385,9 @@ class GRPOTrainingArgs(BaseTrainingArgs):
     )
     curriculum_truncation_mode: str = field(
         default="prefix",
-        metadata={"help": "How to truncate thinking: 'prefix' = keep start only, 'middle' = keep start + end."},
+        metadata={
+            "help": "How to truncate thinking: 'prefix' = keep start only, 'middle' = keep start + end."
+        },
     )
     curriculum_preserve_intuition: bool = field(
         default=True,

@@ -10,15 +10,17 @@ SOLID Principles:
 - Single Responsibility: Only handles loss computation
 - Open/Closed: Different loss types via grpo_loss_type parameter
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
+import numpy as np
 
-from .debug import safe_eval as _safe_eval, safe_clear as _safe_clear
+from .debug import safe_clear as _safe_clear
+from .debug import safe_eval as _safe_eval
 
 if TYPE_CHECKING:
     from typing import Any, Callable
@@ -83,7 +85,7 @@ def get_per_token_logps_with_prompt_mask(
     """
     logits = model(inputs).astype(mx.float16)
     logits = logits[:, :-1, :]  # [batch, seq_len-1, vocab]
-    targets = inputs[:, 1:]      # [batch, seq_len-1]
+    targets = inputs[:, 1:]  # [batch, seq_len-1]
 
     per_token_logps = []
 
@@ -170,15 +172,13 @@ def compute_sft_anchor_loss(
         if seq_len <= prompt_len:
             continue
 
-        target_logits = logits[i, prompt_len:seq_len - 1]
-        target_ids = inputs[i, prompt_len + 1:seq_len]
+        target_logits = logits[i, prompt_len : seq_len - 1]
+        target_ids = inputs[i, prompt_len + 1 : seq_len]
 
         log_probs = nn.log_softmax(target_logits, axis=-1)
-        token_losses = -mx.take_along_axis(
-            log_probs,
-            target_ids.reshape(-1, 1),
-            axis=-1
-        ).squeeze(-1)
+        token_losses = -mx.take_along_axis(log_probs, target_ids.reshape(-1, 1), axis=-1).squeeze(
+            -1
+        )
 
         total_loss = total_loss + mx.sum(token_losses)
         total_tokens += len(token_losses)
@@ -256,9 +256,7 @@ def calculate_rewards_and_advantages(
         if raw_rewards is None:
             processed_rewards = [float("nan")] * len(all_completion_texts)
         else:
-            processed_rewards = [
-                float(r) if r is not None else float("nan") for r in raw_rewards
-            ]
+            processed_rewards = [float(r) if r is not None else float("nan") for r in raw_rewards]
         func_rewards = mx.array(processed_rewards)
         all_func_rewards.append(func_rewards)
 
@@ -276,9 +274,7 @@ def calculate_rewards_and_advantages(
         ):
             if is_exam and (ground_truth is not None or possible_boxed is not None):
                 exam_score, exam_details = exam_compute_reward(
-                    completion,
-                    ground_truth,
-                    possible_boxed_answers=possible_boxed
+                    completion, ground_truth, possible_boxed_answers=possible_boxed
                 )
                 rewards_np[i, :] = exam_score
                 exam_details_list[i] = exam_details
@@ -335,10 +331,7 @@ def calculate_rewards_and_advantages(
             prompt_rewards_arr = mx.array(prompt_rewards)
             mean_reward = mx.mean(prompt_rewards_arr)
             std_reward = mx.std(prompt_rewards_arr)
-            indices = [
-                j for j, idx in enumerate(batch_indices)
-                if idx == unique_prompt_indices[i]
-            ]
+            indices = [j for j, idx in enumerate(batch_indices) if idx == unique_prompt_indices[i]]
             for j, idx in enumerate(indices):
                 advantages[idx] = (prompt_rewards_arr[j] - mean_reward) / (std_reward + 1e-4)
         else:
@@ -362,7 +355,9 @@ def calculate_rewards_and_advantages(
         valid_rewards = mx.array([r for r in raw_rewards if r is not None and not np.isnan(r)])
         if len(valid_rewards) > 0:
             reward_metrics[f"{func_name}_mean"] = mx.mean(valid_rewards)
-            reward_metrics[f"{func_name}_std"] = mx.std(valid_rewards) if len(valid_rewards) > 1 else mx.zeros(1)
+            reward_metrics[f"{func_name}_std"] = (
+                mx.std(valid_rewards) if len(valid_rewards) > 1 else mx.zeros(1)
+            )
             reward_metrics[f"{func_name}_coverage"] = valid_mask.sum() / len(raw_rewards)
         else:
             reward_metrics[f"{func_name}_mean"] = float("nan")
@@ -373,10 +368,12 @@ def calculate_rewards_and_advantages(
     grouped_rewards_mean = mx.array(
         [mx.mean(mx.array(rewards_list)) for rewards_list in rewards_by_prompt]
     )
-    grouped_rewards_std = mx.array([
-        mx.std(mx.array(rewards_list)) if len(rewards_list) > 1 else mx.zeros(1)
-        for rewards_list in rewards_by_prompt
-    ])
+    grouped_rewards_std = mx.array(
+        [
+            mx.std(mx.array(rewards_list)) if len(rewards_list) > 1 else mx.zeros(1)
+            for rewards_list in rewards_by_prompt
+        ]
+    )
     _safe_eval(grouped_rewards_mean, grouped_rewards_std, checkpoint="grouped_rewards")
 
     reward_specific_metrics = {
@@ -550,10 +547,12 @@ def grpo_loss(
     # Combine with token_type_mask if provided
     if token_type_mask is not None:
         if token_type_mask.shape[1] < length_mask.shape[1]:
-            padding = mx.zeros((token_type_mask.shape[0], length_mask.shape[1] - token_type_mask.shape[1]))
+            padding = mx.zeros(
+                (token_type_mask.shape[0], length_mask.shape[1] - token_type_mask.shape[1])
+            )
             token_type_mask = mx.concatenate([token_type_mask, padding], axis=1)
         elif token_type_mask.shape[1] > length_mask.shape[1]:
-            token_type_mask = token_type_mask[:, :length_mask.shape[1]]
+            token_type_mask = token_type_mask[:, : length_mask.shape[1]]
         effective_mask = length_mask * token_type_mask
     else:
         effective_mask = length_mask

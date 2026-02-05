@@ -18,26 +18,26 @@ Design Philosophy:
 """
 
 import logging
-from typing import Tuple, Dict, Any, Optional
+from typing import Any, Dict, Optional, Tuple
 
-from ..core.config import get_config
 from ..core.base import LevelResult
-from ..utils.text_processing import (
-    extract_sections,
-    normalize_text,
-    get_unique_token_ratio,
-)
+from ..core.config import get_config
 from ..utils.information_theory import (
-    calculate_information_density,
     calculate_content_quality_score,
+    calculate_information_density,
     calculate_redundancy,
 )
 from ..utils.structural_analysis import (
     analyze_reasoning_structure,
-    calculate_cognitive_complexity,
-    calculate_structural_quality,
     analyze_reference_chain,
+    calculate_cognitive_complexity,
     calculate_cyclomatic_complexity,
+    calculate_structural_quality,
+)
+from ..utils.text_processing import (
+    extract_sections,
+    get_unique_token_ratio,
+    normalize_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -224,9 +224,7 @@ def efficiency_reward(
         length_score = 0.3 + 0.4 * (thinking_words / target_thinking)
     elif thinking_words <= target_thinking * 1.5:
         # Good range
-        length_score = 0.8 + 0.2 * (
-            1 - abs(thinking_words - target_thinking) / target_thinking
-        )
+        length_score = 0.8 + 0.2 * (1 - abs(thinking_words - target_thinking) / target_thinking)
     else:
         # Too long
         excess = (thinking_words - target_thinking * 1.5) / target_thinking
@@ -302,9 +300,7 @@ def coherence_reward(completion: str) -> Tuple[float, Dict[str, Any]]:
 
     # Combine scores
     final_score = (
-        0.35 * ref_analysis["coherence_score"]
-        + 0.35 * content_score
-        + 0.30 * transition_score
+        0.35 * ref_analysis["coherence_score"] + 0.35 * content_score + 0.30 * transition_score
     )
 
     diagnostics["component_scores"] = {
@@ -531,15 +527,9 @@ def create_quality_result(
     )
 
     # Add components
-    result.add_component(
-        "reasoning", reasoning_score, weights["reasoning"], reasoning_diag
-    )
-    result.add_component(
-        "efficiency", efficiency_score, weights["efficiency"], efficiency_diag
-    )
-    result.add_component(
-        "coherence", coherence_score, weights["coherence"], coherence_diag
-    )
+    result.add_component("reasoning", reasoning_score, weights["reasoning"], reasoning_diag)
+    result.add_component("efficiency", efficiency_score, weights["efficiency"], efficiency_diag)
+    result.add_component("coherence", coherence_score, weights["coherence"], coherence_diag)
     result.add_component("depth", depth_score, weights["depth"], depth_diag)
 
     return result
@@ -561,7 +551,7 @@ def compute_quality_reward(
     Returns:
         RewardResult with score and components
     """
-    from ..core.base import RewardResult, ComponentResult
+    from ..core.base import ComponentResult, RewardResult
     from ..core.config import get_config
 
     cfg = config if config else get_config()
@@ -621,8 +611,11 @@ def compute_quality_reward(
     ]
 
     # Define simple result class for inter-level communication
-    from dataclasses import dataclass, field as dataclass_field
-    from typing import List as ListType, Dict as DictType, Any as AnyType
+    from dataclasses import dataclass
+    from dataclasses import field as dataclass_field
+    from typing import Any as AnyType
+    from typing import Dict as DictType
+    from typing import List as ListType
 
     @dataclass
     class SimpleRewardResult:

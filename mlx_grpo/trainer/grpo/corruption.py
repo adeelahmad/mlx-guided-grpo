@@ -11,6 +11,7 @@ SOLID Principles:
 - Single Responsibility: Only handles corruption detection
 - Open/Closed: New validation checks can be added without modifying existing ones
 """
+
 from __future__ import annotations
 
 import re
@@ -156,10 +157,10 @@ def validate_completions(
     reasons: List[str] = []
 
     # Patterns indicating corruption
-    control_char_pattern = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]{3,}')
-    repeated_char_pattern = re.compile(r'(.)\1{20,}')  # Same char 20+ times
-    repeated_token_pattern = re.compile(r'(\S{2,})\s*\1{10,}')  # Same token 10+ times
-    special_token_only = re.compile(r'^[\s<>/\[\]{}|\\]+$')  # Only special chars
+    control_char_pattern = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]{3,}")
+    repeated_char_pattern = re.compile(r"(.)\1{20,}")  # Same char 20+ times
+    repeated_token_pattern = re.compile(r"(\S{2,})\s*\1{10,}")  # Same token 10+ times
+    special_token_only = re.compile(r"^[\s<>/\[\]{}|\\]+$")  # Only special chars
 
     for i, completion in enumerate(completions):
         issues: List[str] = []
@@ -193,7 +194,7 @@ def validate_completions(
             issues.append("only special tokens")
 
         # Check for encoding issues (replacement character spam)
-        if completion.count('\ufffd') > 5:
+        if completion.count("\ufffd") > 5:
             issues.append("encoding errors (replacement chars)")
 
         if issues:
@@ -251,9 +252,7 @@ def log_completion_warnings(
 
     Returns True if completions appear healthy, False if concerning.
     """
-    is_valid, corrupt_indices, reasons = validate_completions(
-        completions, raise_on_error=False
-    )
+    is_valid, corrupt_indices, reasons = validate_completions(completions, raise_on_error=False)
 
     if corrupt_indices:
         corruption_ratio = len(corrupt_indices) / len(completions)

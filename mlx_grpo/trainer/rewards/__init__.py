@@ -32,6 +32,7 @@ Architecture:
 The core reward functions are defined in grpo_reward_functions.py and
 automatically registered when that module is imported.
 """
+
 from __future__ import annotations
 
 from .registry import (
@@ -49,12 +50,13 @@ from .registry import (
 def _get_backward_compat_functions():
     """Lazy import to avoid circular dependency."""
     from ..grpo_reward_functions import (
-        get_reward_function,
+        RewardFunctions,
         get_default_reward_functions,
+        get_reward_function,
         list_available_reward_functions,
         register_reward_function,
-        RewardFunctions,
     )
+
     return {
         "get_reward_function": get_reward_function,
         "get_default_reward_functions": get_default_reward_functions,
@@ -92,9 +94,11 @@ def __getattr__(name: str):
     }
     if name in compat_names:
         from .. import grpo_reward_functions
+
         return getattr(grpo_reward_functions, name)
     if name in exam_names:
         from .. import exam_reward
+
         return getattr(exam_reward, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

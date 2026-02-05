@@ -5,30 +5,28 @@ Hierarchical Rewards Core Module
 Core infrastructure for the multi-hierarchical reward system.
 """
 
-from .config import (
-    RewardConfig,
-    RewardLevel,
-    GateConfig,
-    get_config,
-    get_default_config,
-    set_config,
-    reset_config,
-)
-
 from .base import (
-    RewardResult,
-    LevelResult,
-    ComponentResult,
-    DiagnosticInfo,
     AntiGamingResult,
     BatchResult,
+    ComponentResult,
+    DiagnosticInfo,
+    LevelResult,
+    RewardResult,
 )
-
+from .config import (
+    GateConfig,
+    RewardConfig,
+    RewardLevel,
+    get_config,
+    get_default_config,
+    reset_config,
+    set_config,
+)
 from .registry import (
-    register_reward_function,
+    RewardFunctionRegistry,
     get_reward_function,
     list_reward_functions,
-    RewardFunctionRegistry,
+    register_reward_function,
 )
 
 __all__ = [

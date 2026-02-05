@@ -17,21 +17,21 @@ Features:
 - Integrated Anti-Verbosity and Efficiency checks
 """
 
-import re
-import math
-import logging
 import ast
-import difflib
 import copy
+import difflib
+import functools
+import logging
+import math
+import os
+import re
+import subprocess
 import sys
 import tempfile
-import subprocess
-import os
-import functools
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Dict, Set, Tuple, Any, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-from .hierarchical_rewards_v3 import batch_hierarchical_reward,hierarchical_reward
+from .hierarchical_rewards_v3 import batch_hierarchical_reward, hierarchical_reward
 
 # --- Soft Dependencies Configuration ---
 try:
@@ -52,13 +52,12 @@ logger = logging.getLogger("GRPO_Rewards")
 # TYPE DEFINITIONS
 # =============================================================================
 
-RewardFunctions = Callable[
-    [List[str], List[str], List[str], Optional[List[str]]], List[float]
-]
+RewardFunctions = Callable[[List[str], List[str], List[str], Optional[List[str]]], List[float]]
 
 # Import the centralized registry from rewards package
 # This enables both the new decorator API and backward compatibility
-from .rewards.registry import REWARD_REGISTRY, reward as _reward_decorator
+from .rewards.registry import REWARD_REGISTRY
+from .rewards.registry import reward as _reward_decorator
 
 # =============================================================================
 # PRE-COMPILED REGEX PATTERNS
@@ -74,9 +73,7 @@ RE_STRICT_FORMAT = re.compile(r"^<think>\n[\s\S]*?\n</think>\n[\s\S]*$")
 RE_STRUCTURED_LIST = re.compile(r"(\n\s*[-*•]|\n\s*\d+\.\s+)")
 
 # MCQ patterns
-RE_MCQ_OPTION = re.compile(
-    r"(?:^|\s|'|\"|\()([A-D])(?:$|\s|\.|'|\"|\)|:)", re.IGNORECASE
-)
+RE_MCQ_OPTION = re.compile(r"(?:^|\s|'|\"|\()([A-D])(?:$|\s|\.|'|\"|\)|:)", re.IGNORECASE)
 RE_MCQ_ANSWER = re.compile(r"answer:\s*([A-D])", re.IGNORECASE)
 RE_MCQ_REF = re.compile(r"(?:^|\s)([A-D])(?=$|\s|\.|:|\))", re.IGNORECASE)
 
@@ -155,9 +152,7 @@ _SAFETY_PATTERNS = [
 ]
 
 _SIMPLE_Q_PATTERNS = [
-    re.compile(
-        r"(?i)(what is|who is|when|where|define|identify|什么是|谁是|哪里|你的身份)"
-    )
+    re.compile(r"(?i)(what is|who is|when|where|define|identify|什么是|谁是|哪里|你的身份)")
 ]
 
 _SENSITIVE_PATTERNS = [re.compile(r"(?i)(tiananmen|massacre|protest|六四|天安门|抗议)")]
@@ -380,9 +375,7 @@ class PhasedCompletion:
     phase_metadata: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_text(
-        cls, text: str, phase_outputs: Optional[List[Dict]] = None
-    ) -> "PhasedCompletion":
+    def from_text(cls, text: str, phase_outputs: Optional[List[Dict]] = None) -> "PhasedCompletion":
         """Parse from raw text (backward compatible)."""
         if not text:
             return cls(raw_text="")
@@ -609,9 +602,7 @@ def get_default_reward_functions() -> List[RewardFunctions]:
     """Get default set of reward functions for GRPO training."""
     return [
         REWARD_REGISTRY.get("r1_accuracy_reward_func", r1_accuracy_reward_func),
-        REWARD_REGISTRY.get(
-            "r1_semantic_similarity_reward", r1_semantic_similarity_reward
-        ),
+        REWARD_REGISTRY.get("r1_semantic_similarity_reward", r1_semantic_similarity_reward),
         REWARD_REGISTRY.get("r1_thinking_quality_reward", r1_thinking_quality_reward),
         REWARD_REGISTRY.get("r1_answer_quality_reward", r1_answer_quality_reward),
         REWARD_REGISTRY.get("r1_format_reward", r1_format_reward),
@@ -743,9 +734,7 @@ def r1_information_density_reward(
     INFO_MARKERS = {
         "numbers": re.compile(r"\b\d+(?:\.\d+)?(?:%|kg|m|km|GB|MB)?\b"),
         "technical": re.compile(r"\b[A-Z]{2,}|\w+_\w+|[a-z]+\(\)|<[^>]+>"),
-        "citations": re.compile(
-            r"according to|research shows|study found|data indicates"
-        ),
+        "citations": re.compile(r"according to|research shows|study found|data indicates"),
     }
     FILLER_WORDS = {
         "basically",
@@ -844,9 +833,7 @@ def get_default_reward_configs() -> Dict[str, Dict[str, Any]]:
     """Get default reward configurations with weights and metadata."""
     return {
         "accuracy": {
-            "func": REWARD_REGISTRY.get(
-                "r1_accuracy_reward_func", r1_accuracy_reward_func
-            ),
+            "func": REWARD_REGISTRY.get("r1_accuracy_reward_func", r1_accuracy_reward_func),
             "weight": 0.25,
             "description": "Exact match accuracy",
         },
@@ -858,16 +845,12 @@ def get_default_reward_configs() -> Dict[str, Dict[str, Any]]:
             "description": "TF-IDF semantic similarity",
         },
         "thinking": {
-            "func": REWARD_REGISTRY.get(
-                "r1_thinking_quality_reward", r1_thinking_quality_reward
-            ),
+            "func": REWARD_REGISTRY.get("r1_thinking_quality_reward", r1_thinking_quality_reward),
             "weight": 0.10,
             "description": "Reasoning quality",
         },
         "answer_quality": {
-            "func": REWARD_REGISTRY.get(
-                "r1_answer_quality_reward", r1_answer_quality_reward
-            ),
+            "func": REWARD_REGISTRY.get("r1_answer_quality_reward", r1_answer_quality_reward),
             "weight": 0.10,
             "description": "Anti-gaming checks",
         },
@@ -1015,16 +998,12 @@ def make_phase_aware_reward(
             if phased.has_thinking:
                 try:
                     think_text = f"<think>{phased.thinking}</think>"
-                    think_score = base_reward_func(
-                        [prompt], [think_text], [ref], [qtype]
-                    )[0]
+                    think_score = base_reward_func([prompt], [think_text], [ref], [qtype])[0]
                 except Exception:
                     think_score = 0.0
 
             try:
-                ans_score = base_reward_func([prompt], [phased.answer], [ref], [qtype])[
-                    0
-                ]
+                ans_score = base_reward_func([prompt], [phased.answer], [ref], [qtype])[0]
             except Exception:
                 ans_score = 0.0
 
@@ -1410,11 +1389,7 @@ def r1_velocity_to_correct_thinking_reward(
     for completion, ref in zip(completions, answer):
         try:
             match = re.search(r"<think>(.*?)</think>", completion, flags=re.DOTALL)
-            thinking = (
-                [l.strip() for l in match.group(1).split("\n") if l.strip()]
-                if match
-                else []
-            )
+            thinking = [l.strip() for l in match.group(1).split("\n") if l.strip()] if match else []
             _, gen_ans = _extract_components(completion)
 
             # Consistency Score (Ratio)
@@ -1423,9 +1398,7 @@ def r1_velocity_to_correct_thinking_reward(
                 last_thought = thinking[-1].lower()
                 first_ans = gen_ans.split("\n")[0].strip().lower()
                 if len(first_ans) > 4:
-                    consistency = difflib.SequenceMatcher(
-                        None, last_thought, first_ans
-                    ).ratio()
+                    consistency = difflib.SequenceMatcher(None, last_thought, first_ans).ratio()
 
             if not thinking or len(thinking) < 2:
                 is_correct = gen_ans.strip().lower() == ref.strip().lower()
@@ -1434,9 +1407,7 @@ def r1_velocity_to_correct_thinking_reward(
                 continue
 
             sims = [_jaccard_similarity(line, ref) for line in thinking]
-            k = next(
-                (i + 1 for i, s in enumerate(sims) if s > CONVERGENCE_THRESHOLD), None
-            )
+            k = next((i + 1 for i, s in enumerate(sims) if s > CONVERGENCE_THRESHOLD), None)
 
             if k is None:
                 is_correct = gen_ans.strip().lower() == ref.strip().lower()
@@ -1504,10 +1475,7 @@ def r1_soft_format_reward_func(
     types: Optional[List[str]] = None,
 ) -> List[float]:
     """Soft format check - just requires think tags present."""
-    return [
-        1.0 if "<think>" in (c or "") and "</think>" in (c or "") else 0.0
-        for c in completions
-    ]
+    return [1.0 if "<think>" in (c or "") and "</think>" in (c or "") else 0.0 for c in completions]
 
 
 @register_reward_function("r1_strict_format_reward_func")
@@ -1518,9 +1486,7 @@ def r1_strict_format_reward_func(
     types: Optional[List[str]] = None,
 ) -> List[float]:
     """Strict format check."""
-    return [
-        1.0 if RE_STRICT_FORMAT.search((c or "").strip()) else 0.0 for c in completions
-    ]
+    return [1.0 if RE_STRICT_FORMAT.search((c or "").strip()) else 0.0 for c in completions]
 
 
 @register_reward_function("r1_int_reward_func")
@@ -1531,9 +1497,7 @@ def r1_int_reward_func(
     types: Optional[List[str]] = None,
 ) -> List[float]:
     """Check if extracted answer is an integer."""
-    return [
-        0.5 if r1_extract_xml_answer(c).strip().isdigit() else 0.0 for c in completions
-    ]
+    return [0.5 if r1_extract_xml_answer(c).strip().isdigit() else 0.0 for c in completions]
 
 
 # =============================================================================
@@ -1557,14 +1521,11 @@ def r1_factual_accuracy_reward(
         score = 0.5
         text_lower = text.lower()
 
-        if "death toll" in text_lower and any(
-            x in text_lower for x in ["100", "200-300"]
-        ):
+        if "death toll" in text_lower and any(x in text_lower for x in ["100", "200-300"]):
             score -= 0.3
 
         scores.append(max(0.0, min(1.0, score)))
     return scores
-
 
 
 @register_reward_function("hierarchical_rewards")
@@ -1576,31 +1537,27 @@ def hierarchical_rewards(
 ) -> List[float]:
     """
     Hierarchical rewards with answer match bonus.
-    
+
     Combines:
     1. Base hierarchical reward (semantic similarity, format, quality)
     2. Answer match bonus (exact/substring match of answer section)
-    
+
     This ensures that completions with correct answers get higher rewards
     than those with semantically similar but wrong content (e.g., wrong identity).
     """
     scores = []
     for prompt, completion, answer in zip(prompts, completions, answers):
         # Get base hierarchical score
-        base_score, _ = hierarchical_reward(
-            response=completion,
-            expected=answer,
-            question=prompt
-        )
-        
+        base_score, _ = hierarchical_reward(response=completion, expected=answer, question=prompt)
+
         # Extract answer sections for direct comparison
         _, completion_answer = _extract_components(completion)
         _, target_answer = _extract_components(answer)
-        
+
         # Normalize for comparison
         comp_ans_norm = completion_answer.strip().lower()
         target_ans_norm = target_answer.strip().lower()
-        
+
         # Calculate answer match bonus
         answer_bonus = 0.0
         if comp_ans_norm and target_ans_norm:
@@ -1621,32 +1578,42 @@ def hierarchical_rewards(
                 if target_words and comp_words:
                     overlap = len(target_words & comp_words) / len(target_words)
                     answer_bonus = 0.15 * overlap
-        
+
         # Check for identity mismatch penalty
         # If target mentions specific identity but completion has different one
         identity_penalty = 0.0
-        wrong_identities = ['qwen', 'gpt', 'claude', 'llama', 'gemini', 'mistral', 
-                          'alibaba', 'openai', 'anthropic', 'google', 'meta']
-        
+        wrong_identities = [
+            "qwen",
+            "gpt",
+            "claude",
+            "llama",
+            "gemini",
+            "mistral",
+            "alibaba",
+            "openai",
+            "anthropic",
+            "google",
+            "meta",
+        ]
+
         # Only apply penalty if target has a specific identity AND completion has wrong one
         target_lower = answer.lower()
         completion_lower = completion.lower()
-        
-        has_target_identity = any(name in target_lower for name in ['neuralai', 'adeel'])
+
+        has_target_identity = any(name in target_lower for name in ["neuralai", "adeel"])
         if has_target_identity:
             for wrong_id in wrong_identities:
                 if wrong_id in completion_lower and wrong_id not in target_lower:
                     identity_penalty = 0.2
                     break
-        
+
         # Combine scores
         final_score = base_score + answer_bonus - identity_penalty
         final_score = max(0.0, min(1.0, final_score))
-        
+
         scores.append(final_score)
 
     return scores
-
 
 
 if __name__ == "__main__":

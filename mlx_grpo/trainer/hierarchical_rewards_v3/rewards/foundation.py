@@ -17,16 +17,16 @@ Design Philosophy:
     - Partial credit for partial compliance
 """
 
-import re
 import logging
-from typing import Tuple, Dict, Any, Optional
+import re
+from typing import Any, Dict, Optional, Tuple
 
+from ..core.base import DiagnosticInfo, LevelResult
 from ..core.config import get_config
-from ..core.base import LevelResult, DiagnosticInfo
 from ..utils.text_processing import (
-    extract_sections,
     check_completion,
     check_tag_balance,
+    extract_sections,
     normalize_text,
 )
 
@@ -394,9 +394,10 @@ def compute_foundation_reward(
     Returns:
         SimpleRewardResult with score, components, and details
     """
-    from ..core.base import ComponentResult
     from dataclasses import dataclass, field
-    from typing import List, Dict, Any
+    from typing import Any, Dict, List
+
+    from ..core.base import ComponentResult
 
     @dataclass
     class SimpleRewardResult:
@@ -413,9 +414,7 @@ def compute_foundation_reward(
     components = []
     if "component_scores" in diagnostics:
         for comp_name, comp_score in diagnostics["component_scores"].items():
-            weight = {"structure": 0.50, "format": 0.15, "completeness": 0.35}.get(
-                comp_name, 0.33
-            )
+            weight = {"structure": 0.50, "format": 0.15, "completeness": 0.35}.get(comp_name, 0.33)
             components.append(
                 ComponentResult(
                     name=comp_name,

@@ -17,24 +17,24 @@ Design Philosophy:
     - Partial credit for partial correctness
 """
 
-import re
 import logging
-from typing import Tuple, Dict, Any, Optional, List
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
-from ..core.config import get_config
 from ..core.base import LevelResult
-from ..utils.text_processing import (
-    extract_sections,
-    extract_answer_content,
-    normalize_text,
-    normalize_number,
-    extract_numbers,
-    fuzzy_match,
-    calculate_text_similarity,
-)
+from ..core.config import get_config
 from ..utils.information_theory import (
-    normalized_compression_distance,
     compression_based_similarity,
+    normalized_compression_distance,
+)
+from ..utils.text_processing import (
+    calculate_text_similarity,
+    extract_answer_content,
+    extract_numbers,
+    extract_sections,
+    fuzzy_match,
+    normalize_number,
+    normalize_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -285,9 +285,7 @@ def factual_accuracy_reward(
     }
 
     # Run all checks
-    num_score, num_diag = numerical_match_reward(
-        completion, expected, config.numerical_tolerance
-    )
+    num_score, num_diag = numerical_match_reward(completion, expected, config.numerical_tolerance)
     diagnostics["numerical"] = num_diag
     diagnostics["component_scores"]["numerical"] = num_score
 
@@ -569,9 +567,7 @@ def create_correctness_result(
     # Add components
     result.add_component("factual", factual_score, weights["factual"], factual_diag)
     result.add_component("semantic", semantic_score, weights["semantic"], semantic_diag)
-    result.add_component(
-        "verification", verification_score, weights["verification"], verify_diag
-    )
+    result.add_component("verification", verification_score, weights["verification"], verify_diag)
     result.add_component("keyword", keyword_score, weights["keyword"], keyword_diag)
 
     return result
@@ -593,7 +589,7 @@ def compute_correctness_reward(
     Returns:
         RewardResult with score and components
     """
-    from ..core.base import RewardResult, ComponentResult
+    from ..core.base import ComponentResult, RewardResult
     from ..core.config import get_config
 
     cfg = config if config else get_config()
@@ -653,8 +649,11 @@ def compute_correctness_reward(
     ]
 
     # Define simple result class for inter-level communication
-    from dataclasses import dataclass, field as dataclass_field
-    from typing import List as ListType, Dict as DictType, Any as AnyType
+    from dataclasses import dataclass
+    from dataclasses import field as dataclass_field
+    from typing import Any as AnyType
+    from typing import Dict as DictType
+    from typing import List as ListType
 
     @dataclass
     class SimpleRewardResult:

@@ -15,6 +15,7 @@ SOLID Principles:
 - Open/Closed: New rewards added without modifying registry code
 - Interface Segregation: Rewards only need to match the signature
 """
+
 from __future__ import annotations
 
 import logging
@@ -36,10 +37,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 # Type alias for reward function signature
-RewardFunc: TypeAlias = Callable[
-    [list[str], list[str], list[str], list[str] | None],
-    list[float]
-]
+RewardFunc: TypeAlias = Callable[[list[str], list[str], list[str], list[str] | None], list[float]]
 
 # Global registry - maps name -> function
 REWARD_REGISTRY: dict[str, RewardFunc] = {}
@@ -80,6 +78,7 @@ def reward(
         def format_reward(prompts, completions, answers, types=None):
             ...
     """
+
     def decorator(func: RewardFunc) -> RewardFunc:
         key = name if name is not None else func.__name__
 
@@ -196,6 +195,7 @@ def _validate_wrapper(func: RewardFunc) -> RewardFunc:
     - NaN/Inf values are replaced with 0.0
     - Exceptions are caught and logged
     """
+
     @wraps(func)
     def wrapper(
         prompts: list[str],

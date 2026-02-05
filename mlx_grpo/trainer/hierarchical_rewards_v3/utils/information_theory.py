@@ -18,11 +18,11 @@ Key Measures:
     - Mutual information
 """
 
+import logging
 import math
 import zlib
-import logging
-from typing import Dict, List, Tuple, Optional
 from collections import Counter
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
