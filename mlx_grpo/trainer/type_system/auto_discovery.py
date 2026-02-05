@@ -168,9 +168,13 @@ def discover_class(
     for module_path in search_paths:
         # Try different naming patterns
         patterns = [
-            f"{module_path}.{data_type}_{component_type}",  # math_reward
-            f"{module_path}.{data_type.lower()}_{suffix.lower()}",  # math_reward
-            f"{module_path}.{class_name_base.lower()}",  # math
+            f"{module_path}.{data_type}_{component_type}",  # tool_call_reward
+            f"{module_path}.{data_type.lower()}_{suffix.lower()}",  # tool_call_reward
+            f"{module_path}.{data_type}_strategy",  # tool_call_strategy
+            f"{module_path}.{class_name_base.lower()}_{component_type}",  # toolcall_reward
+            f"{module_path}.{class_name_base.lower()}_{suffix.lower()}",  # toolcall_reward
+            f"{module_path}.{class_name_base.lower()}_strategy",  # toolcall_strategy
+            f"{module_path}.{class_name_base.lower()}",  # toolcall
         ]
 
         for pattern in patterns:
