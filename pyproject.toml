@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mlx-guided-grpo"
-version = "2.1.0"
+version = "2.1.1"
 description = "Guided Group Relative Policy Optimization (GRPO) training for MLX on Apple Silicon"
 readme = "README.md"
 license = {text = "MIT"}
