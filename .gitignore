@@ -104,6 +104,7 @@ cython_debug/
 # Project specific
 adapters/
 wandb/
+evals/
 *.safetensors
 !mlx_grpo/**/*.safetensors
 

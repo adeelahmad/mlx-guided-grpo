@@ -626,6 +626,19 @@ def train_grpo(
         if not already_has_v2:
             v2_reward = v2_reward_adapter(type_coordinator)
             reward_funcs = [v2_reward] + list(reward_funcs)
+            # Keep reward_weights in sync: prepend weight 1.0 for the v2 adapter
+            if args.reward_weights is not None:
+                args.reward_weights = [1.0] + list(args.reward_weights)
+
+    # Pad reward_weights if fewer weights than functions (e.g. user specified
+    # weights for a subset). Extra functions get weight 1.0.
+    if args.reward_weights is not None and len(args.reward_weights) < len(reward_funcs):
+        pad_count = len(reward_funcs) - len(args.reward_weights)
+        tqdm.write(
+            f"Note: {len(args.reward_weights)} reward weights for "
+            f"{len(reward_funcs)} reward functions — padding {pad_count} with 1.0"
+        )
+        args.reward_weights = list(args.reward_weights) + [1.0] * pad_count
 
     mx.set_wired_limit(mx.metal.device_info()["max_recommended_working_set_size"])
     world = mx.distributed.init()

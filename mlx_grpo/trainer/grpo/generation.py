@@ -14,8 +14,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import gc
+
 import mlx.core as mx
-from mlx_lm.generate import batch_generate
+from mlx_lm.generate import batch_generate, generate
 from mlx_lm.sample_utils import make_sampler
 from tqdm import tqdm
 
@@ -297,6 +299,7 @@ def generate_grpo(
 
             mx.synchronize()
             mx.clear_cache()
+            gc.collect()
 
             # Sub-batch generation to avoid GPU timeout
             all_result_texts: list[str] = []
@@ -333,19 +336,71 @@ def generate_grpo(
                     sub_max_tokens = batch_max_tokens
                     sub_sampler = default_sampler
 
-                sub_results = batch_generate(
-                    model=model,
-                    tokenizer=tokenizer,
-                    prompts=sub_prompts,
-                    max_tokens=sub_max_tokens,
-                    sampler=sub_sampler,
-                    verbose=True,
-                )
+                # Use simple generate() for single samples — avoids batch overhead
+                # and keeps KV cache smaller
+                if len(sub_prompts) == 1:
+                    result_text = generate(
+                        model=model,
+                        tokenizer=tokenizer,
+                        prompt=sub_prompts[0],
+                        max_tokens=sub_max_tokens,
+                        sampler=sub_sampler,
+                        verbose=False,
+                    )
+                    all_result_texts.append(result_text)
+                else:
+                    sub_results = batch_generate(
+                        model=model,
+                        tokenizer=tokenizer,
+                        prompts=sub_prompts,
+                        max_tokens=sub_max_tokens,
+                        sampler=sub_sampler,
+                        verbose=False,
+                    )
+                    all_result_texts.extend(sub_results.texts)
+                    del sub_results
 
-                all_result_texts.extend(sub_results.texts)
-                del sub_results
+                # Aggressively free generation activations / KV cache
                 mx.synchronize()
-                mx.clear_cache()  # Clear after each sub-batch
+                mx.clear_cache()
+                gc.collect()
+
+            # Post-generation stop-sequence truncation:
+            # mlx_lm doesn't support stop strings, so truncate at the first
+            # type-specific stop sequence found in each output.
+            # IMPORTANT: Only search for stop sequences OUTSIDE of <think>
+            # blocks, since thinking models may "leak" tool-call tokens
+            # inside their reasoning (e.g. </tool_call> inside <think>).
+            for result_idx in range(len(all_result_texts)):
+                cfg = batched_gen_configs[result_idx] if result_idx < len(batched_gen_configs) else None
+                if cfg is not None and cfg.stop_sequences:
+                    txt = all_result_texts[result_idx]
+
+                    # Determine search region: only after </think> if present,
+                    # or after the last unclosed <think> if still inside thinking.
+                    search_start = 0
+                    think_close_pos = txt.rfind("</think>")
+                    think_open_pos = txt.rfind("<think>")
+                    if think_close_pos != -1:
+                        # Completed thinking block - search after it
+                        search_start = think_close_pos + len("</think>")
+                    elif think_open_pos != -1:
+                        # Unclosed <think> - model is still inside thinking,
+                        # do NOT truncate at stop sequences inside thinking
+                        continue
+
+                    search_region = txt[search_start:]
+                    earliest_pos = len(search_region)
+                    matched_seq = None
+                    for seq in cfg.stop_sequences:
+                        pos = search_region.find(seq)
+                        if pos != -1 and pos < earliest_pos:
+                            earliest_pos = pos
+                            matched_seq = seq
+                    if matched_seq is not None:
+                        # Keep the stop sequence itself (e.g. </tool_call>)
+                        abs_pos = search_start + earliest_pos
+                        all_result_texts[result_idx] = txt[: abs_pos + len(matched_seq)]
 
             for idx, completion_text in enumerate(all_result_texts):
                 prefix_text = batched_prefix_texts[idx]
@@ -461,14 +516,16 @@ def generate_grpo(
                         incomplete_targets.append(target)
                         incomplete_injected_counts.append(injected_count)
 
-            del all_result_texts
-            mx.eval(all_completions[-len(batched_prompts) :])
+            del all_result_texts, batched_prompts, batched_gen_configs
+            mx.eval(all_completions[-current_batch_size * group_size :])
+            mx.synchronize()
             mx.clear_cache()
+            gc.collect()
 
         # Phase 2: Batch continuation for incomplete outputs
         if incomplete_indices:
             tqdm.write(f"  Two-phase recovery: {len(incomplete_indices)} incomplete outputs")
-            _run_phase2_continuation(
+            phase2_scaffold_counts = _run_phase2_continuation(
                 incomplete_indices=incomplete_indices,
                 incomplete_prompts=incomplete_prompts,
                 incomplete_prefixes=incomplete_prefixes,
@@ -483,11 +540,17 @@ def generate_grpo(
                 end_token=end_token,
                 use_eos_token=use_eos_token,
             )
-            # Update scaffold token counts with injected tokens from two-phase recovery
+            # Replace scaffold counts for Phase 2 samples.
+            # The returned counts represent: total_completion_tokens - phase2_model_tokens.
+            # This masks everything the model didn't generate in Phase 2 (Phase 1
+            # thinking, injected closing tags, truncation markers) while only
+            # training on the actual Phase 2 continuation.
             for i, global_idx in enumerate(incomplete_indices):
-                all_scaffold_token_counts[global_idx] += incomplete_injected_counts[i]
+                all_scaffold_token_counts[global_idx] = phase2_scaffold_counts[i]
             tqdm.write(f"  Two-phase recovery complete")
-            mx.clear_cache()  # Clear after phase 2
+            mx.synchronize()
+            mx.clear_cache()
+            gc.collect()
 
         # Build recovery flags
         two_phase_flags = [False] * len(all_completions)
@@ -506,7 +569,9 @@ def generate_grpo(
             all_scaffold_token_counts,
         )
     finally:
+        mx.synchronize()
         mx.clear_cache()
+        gc.collect()
         if was_training:
             model.train()
 
@@ -687,8 +752,15 @@ def _run_phase2_continuation(
     max_tokens: int,
     end_token: str,
     use_eos_token: bool,
-) -> None:
-    """Run Phase 2 continuation for incomplete completions."""
+) -> list[int]:
+    """Run Phase 2 continuation for incomplete completions.
+
+    Returns:
+        List of scaffold token counts for each incomplete sample. These represent
+        the number of tokens from the start of the completion that should be
+        masked from loss (everything except Phase 2 model-generated continuation).
+    """
+    scaffold_counts: list[int] = []
     continuation_prompts = []
     for orig_prompt, fixed_prefix in zip(incomplete_prompts, incomplete_prefixes):
         if isinstance(orig_prompt, mx.array):
@@ -717,25 +789,48 @@ def _run_phase2_continuation(
 
         mx.synchronize()
         mx.clear_cache()
+        gc.collect()
 
-        continuation_results = batch_generate(
-            model=model,
-            tokenizer=tokenizer,
-            prompts=cont_batch_prompts,
-            max_tokens=continuation_tokens,
-            sampler=continuation_sampler,
-            verbose=True,
-        )
+        # Use simple generate() for single samples — avoids batch overhead
+        if len(cont_batch_prompts) == 1:
+            cont_text_single = generate(
+                model=model,
+                tokenizer=tokenizer,
+                prompt=cont_batch_prompts[0],
+                max_tokens=continuation_tokens,
+                sampler=continuation_sampler,
+                verbose=False,
+            )
+            continuation_texts = [cont_text_single]
+        else:
+            continuation_results = batch_generate(
+                model=model,
+                tokenizer=tokenizer,
+                prompts=cont_batch_prompts,
+                max_tokens=continuation_tokens,
+                sampler=continuation_sampler,
+                verbose=False,
+            )
+            continuation_texts = list(continuation_results.texts)
+            del continuation_results
 
+        # Aggressively free generation activations / KV cache
         mx.synchronize()
-        mx.clear_cache()  # Clear generation cache immediately
+        mx.clear_cache()
+        gc.collect()
 
-        for local_idx, cont_text in enumerate(continuation_results.texts):
+        for local_idx, cont_text in enumerate(continuation_texts):
             global_idx = cont_batch_indices[local_idx]
             fixed_prefix = cont_batch_prefixes[local_idx]
 
             combined_text = fixed_prefix + cont_text
             completion_ids = tokenizer.encode(combined_text)
+
+            # Track how many Phase 2 continuation tokens the model generated.
+            # Everything else in the completion is non-model-generated context
+            # (Phase 1 thinking + injected tags + truncation markers) and must
+            # be masked from loss.
+            phase2_token_count = len(tokenizer.encode(cont_text))
 
             # Smart truncation: preserve the ending (which has </think>\n\boxed{answer})
             # Truncate from the MIDDLE of thinking, not from the end
@@ -747,7 +842,7 @@ def _run_phase2_continuation(
                 # Try to find boundary between thinking and answer
                 think_end_pos = combined_text.find(think_end_text)
                 if think_end_pos != -1:
-                    # Preserve everything from </think> onwards
+                    # Preserve everything from </think> onwards (injected tags + Phase 2)
                     end_content = combined_text[think_end_pos:]
                     start_content = combined_text[:think_end_pos]
 
@@ -772,6 +867,10 @@ def _run_phase2_continuation(
                     completion_ids = completion_ids[:max_tokens]
                     combined_text = tokenizer.decode(completion_ids)
 
+                # Re-truncation changed the completion — recalculate Phase 2 tokens.
+                # Phase 2 content is at the END of combined_text, so count backward.
+                phase2_token_count = min(phase2_token_count, len(completion_ids))
+
             if not use_eos_token and end_token:
                 end_sequence = tokenizer.encode(end_token)
                 if (
@@ -785,5 +884,12 @@ def _run_phase2_continuation(
             all_completions[global_idx] = completion_arr
             all_completion_texts[global_idx] = combined_text
 
-        del continuation_results
+            # Scaffold count = total completion tokens minus Phase 2 model-generated tokens
+            scaffold_counts.append(len(completion_ids) - phase2_token_count)
+
+        del continuation_texts
+        mx.synchronize()
         mx.clear_cache()
+        gc.collect()
+
+    return scaffold_counts

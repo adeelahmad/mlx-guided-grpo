@@ -93,6 +93,7 @@ class GRPODataset:
             raw_type = item.get(type_key, None)
             ground_truth = item.get(ground_truth_key, None)
             possible_boxed_answers = item.get("possible_boxed_answers", None)
+            tools = item.get("tools", None)  # OpenAI-format tool definitions
 
             # Build metadata dict for type_info
             if isinstance(raw_type, dict):
@@ -107,25 +108,30 @@ class GRPODataset:
                 if possible_boxed_answers is not None:
                     type_info["possible_boxed_answers"] = possible_boxed_answers
 
-            # Check if this is an exam-type sample
+            # Check if this is an exam-type sample (tool_call has its own reward)
+            sample_type = type_info.get("type")
+            is_tool_call_sample = is_tool_call_type(sample_type)
             is_exam_type = (
-                type_info.get("type") == "exam"
-                or ground_truth is not None
-                or item.get("is_exam", False)
+                not is_tool_call_sample
+                and (
+                    type_info.get("type") == "exam"
+                    or ground_truth is not None
+                    or item.get("is_exam", False)
+                )
             )
 
             if is_exam_type:
                 type_info["is_exam"] = True
                 exam_count += 1
 
-            # Skip samples without think tags if required (but NOT for exam type or tool_call)
-            sample_type = type_info.get("type")
-            is_tool_call_sample = is_tool_call_type(sample_type)
-
             if require_think_tags and not is_exam_type and not is_tool_call_sample:
                 if "<think>" not in answer_str or "</think>" not in answer_str:
                     skipped_count += 1
                     continue
+
+            # Store tools in type_info so they're available during generation
+            if tools is not None:
+                type_info["tools"] = tools
 
             # Tokenize
             if text_completion_key is None:
@@ -137,14 +143,21 @@ class GRPODataset:
                     {"role": "user", "content": prompt_str},
                 ]
 
-                # Get chat template config from type system (if available)
-                chat_template_config = self._get_chat_template_config(sample_type)
+                # Build apply_chat_template kwargs
+                template_kwargs = {
+                    "add_generation_prompt": True,
+                    "tokenize": True,
+                    "return_dict": False,  # Ensure plain list[int] return
+                }
+
+                # Pass tools to apply_chat_template for tool_call samples
+                # This lets Qwen's Jinja2 template inject <tools> into system msg
+                if is_tool_call_sample and tools is not None:
+                    template_kwargs["tools"] = tools
 
                 prompt_tokens = tokenizer.apply_chat_template(
                     messages,
-                    add_generation_prompt=True,
-                    tokenize=True,
-                    chat_template_config=chat_template_config,
+                    **template_kwargs,
                 )
             else:
                 prompt_tokens = tokenizer.encode(str(item[text_completion_key]))
@@ -251,17 +264,9 @@ class GRPODataset:
 
         # Type-specific defaults
         if is_tool_call_type(normalized_type):
-            # Hermes-style function calling (aligned with Qwen pre-training)
-            return """You are a helpful assistant with access to functions. When you need to use a function, respond ONLY with a JSON object in this exact format:
-
-{"name": "function_name", "arguments": "{\\"param1\\": \\"value1\\", \\"param2\\": \\"value2\\"}"}
-
-IMPORTANT:
-- Do NOT use <think> tags
-- Do NOT include explanations or boxed answers
-- Respond ONLY with the function call JSON
-- The arguments field must be a JSON-formatted string
-- Be precise and call the appropriate function when needed"""
+            # Minimal system prompt - Qwen's chat template injects tool instructions
+            # when tools= is passed to apply_chat_template
+            return "You are a helpful assistant."
 
         # Default thinking-based prompt for math/exam/other
         return """I'm NeuralAI, an AI assistant. In this environment, I analyze problems carefully.
@@ -277,23 +282,6 @@ IMPORTANT:
 1. Work through the problem in <think>...</think> tags
 2. Provide your final answer as \\boxed{answer}
 3. Add a brief explanation"""
-
-    def _get_chat_template_config(self, sample_type: str | None) -> dict[str, Any] | None:
-        """Get chat template config based on sample type.
-
-        Args:
-            sample_type: The type of sample (tool_call, math, exam, etc.)
-
-        Returns:
-            Chat template config dict or None if not needed
-        """
-        # Normalize type first
-        normalized_type = normalize_sample_type(sample_type)
-
-        if not normalized_type:
-            return None
-
-        return None
 
     def __getitem__(self, idx: int) -> tuple:
         return self._data[idx]

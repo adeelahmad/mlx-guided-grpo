@@ -108,11 +108,19 @@ class TestTypeNormalization(unittest.TestCase):
             self.assertEqual(normalize_type(alias), "tool_call", f"Failed for {alias}")
 
     def test_mcq_aliases(self):
-        for alias in ["exam", "aime", "math500", "olympiad", "multiple_choice"]:
+        for alias in ["exam", "aime", "olympiad", "multiple_choice"]:
             self.assertEqual(normalize_type(alias), "mcq", f"Failed for {alias}")
 
+    def test_math_aliases(self):
+        for alias in ["math", "algebra", "calculus", "gsm8k", "math500"]:
+            self.assertEqual(normalize_type(alias), "math", f"Failed for {alias}")
+
+    def test_python_aliases(self):
+        for alias in ["python", "code", "coding", "programming"]:
+            self.assertEqual(normalize_type(alias), "python", f"Failed for {alias}")
+
     def test_general_qna_aliases(self):
-        for alias in ["math", "thinking", "reasoning", "code", "default"]:
+        for alias in ["thinking", "reasoning", "default"]:
             self.assertEqual(normalize_type(alias), "general_qna", f"Failed for {alias}")
 
     def test_none_returns_default(self):
@@ -298,29 +306,78 @@ class TestToolCallReward(unittest.TestCase):
     def setUp(self):
         self.reward = ToolCallReward(strict=True)
 
+    def _hermes(self, name: str, args: dict) -> str:
+        """Helper to build Hermes tool call string."""
+        import json
+        return f'<tool_call>\n{json.dumps({"name": name, "arguments": args})}\n</tool_call>'
+
     def test_exact_function_match(self):
+        tc = self._hermes("add", {"a": 5, "b": 3})
         scores = self.reward.compute(
             prompts=["Call add"],
-            completions=["add(a=5, b=3)"],
-            answers=["add(a=5, b=3)"],
+            completions=[tc],
+            answers=[tc],
         )
         self.assertGreater(scores[0], 0.8)
 
-    def test_thinking_contamination_zero(self):
+    def test_thinking_before_tool_call_allowed(self):
+        """Thinking models naturally produce <think> before tool calls.
+        This should NOT be penalized - we strip thinking and score tool portion."""
+        tc = self._hermes("add", {"a": 5, "b": 3})
         scores = self.reward.compute(
             prompts=["Call add"],
-            completions=["<think>thinking</think>add(a=5, b=3)"],
-            answers=["add(a=5, b=3)"],
+            completions=[f"<think>I need to call add(5, 3)</think>\n{tc}"],
+            answers=[tc],
+        )
+        self.assertGreater(scores[0], 0.8)
+
+    def test_math_contamination_zero(self):
+        """Math contamination (\\boxed{{}}) should still return 0.0."""
+        tc = self._hermes("add", {"a": 5, "b": 3})
+        scores = self.reward.compute(
+            prompts=["Call add"],
+            completions=[f"\\boxed{{8}}\n{tc}"],
+            answers=[tc],
         )
         self.assertEqual(scores[0], 0.0)
 
     def test_no_function_call_zero(self):
+        tc = self._hermes("add", {"a": 5, "b": 3})
         scores = self.reward.compute(
             prompts=["Call add"],
             completions=["The answer is 8"],
-            answers=["add(a=5, b=3)"],
+            answers=[tc],
         )
         self.assertEqual(scores[0], 0.0)
+
+    def test_wrong_function_name(self):
+        comp = self._hermes("sub", {"a": 5, "b": 3})
+        ans = self._hermes("add", {"a": 5, "b": 3})
+        scores = self.reward.compute(
+            prompts=["Call add"], completions=[comp], answers=[ans],
+        )
+        self.assertEqual(scores[0], 0.0)
+
+    def test_partial_args_match(self):
+        comp = self._hermes("add", {"a": 5, "b": 99})
+        ans = self._hermes("add", {"a": 5, "b": 3})
+        scores = self.reward.compute(
+            prompts=["Call add"], completions=[comp], answers=[ans],
+        )
+        # tool_name match (0.5) + partial args (0.5 * 0.5) = 0.75
+        self.assertGreater(scores[0], 0.5)
+        self.assertLess(scores[0], 1.0)
+
+    def test_legacy_answer_fallback(self):
+        """Reward should handle legacy python-style answers via fallback."""
+        comp = self._hermes("add", {"a": 5, "b": 3})
+        scores = self.reward.compute(
+            prompts=["Call add"],
+            completions=[comp],
+            answers=["add(a=5, b=3)"],  # legacy format
+        )
+        # Should at least match function name
+        self.assertGreater(scores[0], 0.2)
 
 
 # =============================================================================
@@ -581,11 +638,12 @@ class TestBridge(unittest.TestCase):
     def test_reward_adapter_dispatches_by_type(self):
         adapter = v2_reward_adapter(self.coordinator)
 
-        # Tool call sample
+        # Tool call sample (Hermes format)
+        tc = '<tool_call>\n{"name": "add", "arguments": {"a": 1, "b": 2}}\n</tool_call>'
         scores = adapter(
             prompts=["Call add"],
-            completions=["add(a=1, b=2)"],
-            answers=["add(a=1, b=2)"],
+            completions=[tc],
+            answers=[tc],
             types=[{"type": "tool_call"}],
         )
         self.assertEqual(len(scores), 1)
@@ -594,14 +652,15 @@ class TestBridge(unittest.TestCase):
     def test_reward_adapter_mixed_types(self):
         adapter = v2_reward_adapter(self.coordinator)
 
+        tc = '<tool_call>\n{"name": "add", "arguments": {"a": 1, "b": 2}}\n</tool_call>'
         scores = adapter(
             prompts=["Call", "What is 2+2?"],
             completions=[
-                "add(a=1, b=2)",
+                tc,
                 "<think>2+2=4</think>4",
             ],
             answers=[
-                "add(a=1, b=2)",
+                tc,
                 "4",
             ],
             types=[
@@ -721,17 +780,31 @@ class TestCheckIncomplete(unittest.TestCase):
         self.tokenizer = MagicMock()
         self.tokenizer.encode = MagicMock(return_value=[1, 2, 3, 4, 5])
 
-    def test_tool_call_no_recovery(self):
-        """Tool calls should never trigger phase recovery."""
-        self.assertFalse(self.tc_gen.needs_phase_recovery())
+    def test_tool_call_two_phase_recovery(self):
+        """Tool calls use two-phase: inject <tool_call> if missing."""
+        self.assertTrue(self.tc_gen.needs_phase_recovery())
+
+        # Complete output should NOT trigger recovery
+        tc_text = '<tool_call>\n{"name": "add", "arguments": {"a": 1, "b": 2}}\n</tool_call>'
         is_incomplete, prefix, count = self.tc_gen.check_incomplete(
-            text="add(a=1, b=2)",
+            text=tc_text,
             scaffold_ratio=0.0,
-            target="add(a=1, b=2)",
+            target=tc_text,
             type_info=None,
             tokenizer=self.tokenizer,
         )
         self.assertFalse(is_incomplete)
+
+        # Missing <tool_call> should trigger recovery
+        is_incomplete, prefix, count = self.tc_gen.check_incomplete(
+            text="I'll call the add function",
+            scaffold_ratio=0.0,
+            target=tc_text,
+            type_info=None,
+            tokenizer=self.tokenizer,
+        )
+        self.assertTrue(is_incomplete)
+        self.assertIn("<tool_call>", prefix)
 
     def test_general_complete_no_recovery(self):
         """Complete thinking output should not trigger recovery."""

@@ -62,17 +62,31 @@ _TYPE_ALIASES: dict[str, str] = {
     # MCQ / Exam
     "exam": "mcq",
     "aime": "mcq",
-    "math500": "mcq",
     "exam_math": "mcq",
     "exam_aime": "mcq",
     "exam_olympiad": "mcq",
     "olympiad": "mcq",
     "multiple_choice": "mcq",
-    # General
-    "math": "general_qna",
+    # Math
+    "arithmetic": "math",
+    "calculus": "math",
+    "algebra": "math",
+    "geometry": "math",
+    "number_theory": "math",
+    "combinatorics": "math",
+    "probability": "math",
+    "statistics": "math",
+    "gsm8k": "math",
+    "math500": "math",
+    "competition_math": "math",
+    # Python / Code
+    "code": "python",
+    "coding": "python",
+    "programming": "python",
+    "py": "python",
+    # General (fallback)
     "thinking": "general_qna",
     "reasoning": "general_qna",
-    "code": "general_qna",
     "default": "general_qna",
 }
 
@@ -392,6 +406,38 @@ def auto_register_builtin_types(
         )
     except ImportError as e:
         logger.warning("Could not register mcq: %s", e)
+
+    # Math
+    try:
+        from .rewards.math import MathReward
+        from .loaders.math import MathDatasetLoader
+        from .generators.math import MathRolloutGenerator
+
+        coordinator.register_type(
+            type_name="math",
+            reward=MathReward(event_bus=event_bus),
+            loader=MathDatasetLoader(tokenizer, event_bus=event_bus),
+            generator=MathRolloutGenerator(event_bus=event_bus),
+            metadata={"description": "Mathematical reasoning tasks"},
+        )
+    except ImportError as e:
+        logger.warning("Could not register math: %s", e)
+
+    # Python / Code
+    try:
+        from .rewards.python import PythonReward
+        from .loaders.python import PythonDatasetLoader
+        from .generators.python import PythonRolloutGenerator
+
+        coordinator.register_type(
+            type_name="python",
+            reward=PythonReward(event_bus=event_bus),
+            loader=PythonDatasetLoader(tokenizer, event_bus=event_bus),
+            generator=PythonRolloutGenerator(event_bus=event_bus),
+            metadata={"description": "Python/code generation tasks"},
+        )
+    except ImportError as e:
+        logger.warning("Could not register python: %s", e)
 
     # General QNA (DEFAULT)
     try:

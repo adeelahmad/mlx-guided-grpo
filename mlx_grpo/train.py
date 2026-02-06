@@ -200,8 +200,8 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "load_in_6bits": False,
     "load_in_8bits": False,
     "train_type": "lora",
-    "force_dora": False,
-    "optimizer": "adam",
+    "force_dora": True,
+    "optimizer": "adamw",
     "optimizer_config": {"adam": {}, "adamw": {}, "muon": {}},
     "data": "data/",
     "seed": 0,
@@ -396,7 +396,7 @@ def build_parser() -> argparse.ArgumentParser:
     train_group.add_argument(
         "--force-dora",
         action="store_true",
-        default=False,
+        default=True,
         help="Force DoRA even with quantized models (dequantizes weights each step)",
     )
     train_group.add_argument("--optimizer", choices=["adam", "adamw", "muon"], default=None)

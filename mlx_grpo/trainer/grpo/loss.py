@@ -248,10 +248,10 @@ def calculate_rewards_and_advantages(
     all_func_rewards = []
     for reward_func in reward_funcs:
         raw_rewards = reward_func(
-            prompts=expanded_prompts,
-            completions=all_completion_texts,
-            answers=expanded_answers,
-            types=expanded_types,
+            expanded_prompts,
+            all_completion_texts,
+            expanded_answers,
+            expanded_types,
         )
         if raw_rewards is None:
             processed_rewards = [float("nan")] * len(all_completion_texts)
@@ -298,10 +298,11 @@ def calculate_rewards_and_advantages(
     else:
         reward_weights_arr = mx.ones(len(reward_funcs), dtype=mx.float32)
 
-    # Compute weighted sum
+    # Compute weighted average (normalized so result stays in [0, 1])
     valid_reward_mask = ~mx.isnan(rewards)
     rewards_no_nan = mx.where(valid_reward_mask, rewards, mx.zeros_like(rewards))
-    rewards = (rewards_no_nan * mx.expand_dims(reward_weights_arr, 0)).sum(axis=1)
+    total_weight = reward_weights_arr.sum()
+    rewards = (rewards_no_nan * mx.expand_dims(reward_weights_arr, 0)).sum(axis=1) / total_weight
     _safe_eval(rewards, checkpoint="rewards_weighted")
 
     raw_rewards_for_metrics = rewards
@@ -345,10 +346,10 @@ def calculate_rewards_and_advantages(
     for i, reward_func in enumerate(reward_funcs):
         func_name = reward_func.__name__
         raw_rewards = reward_func(
-            prompts=expanded_prompts,
-            completions=all_completion_texts,
-            answers=expanded_answers,
-            types=expanded_types,
+            expanded_prompts,
+            all_completion_texts,
+            expanded_answers,
+            expanded_types,
         )
         valid_mask = ~mx.isnan(
             mx.array([r if r is not None else float("nan") for r in raw_rewards])

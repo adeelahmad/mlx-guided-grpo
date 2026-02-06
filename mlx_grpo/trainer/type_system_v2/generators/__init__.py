@@ -7,11 +7,14 @@ from .tool_call import (
 )
 from .mcq import MCQRolloutGenerator
 from .general_qna import GeneralQNARolloutGenerator
-
+from .math import MathRolloutGenerator
+from .python import PythonRolloutGenerator
 __all__ = [
     "ThinkingBasedGenerator",
     "ToolCallRolloutGenerator",
     "ToolCallStrictHook",
     "MCQRolloutGenerator",
     "GeneralQNARolloutGenerator",
+    "MathRolloutGenerator",
+    "PythonRolloutGenerator",
 ]
