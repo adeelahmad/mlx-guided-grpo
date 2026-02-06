@@ -200,6 +200,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "load_in_6bits": False,
     "load_in_8bits": False,
     "train_type": "lora",
+    "force_dora": False,
     "optimizer": "adam",
     "optimizer_config": {"adam": {}, "adamw": {}, "muon": {}},
     "data": "data/",
@@ -392,6 +393,12 @@ def build_parser() -> argparse.ArgumentParser:
     train_group.add_argument("--train", action="store_true", help="Enable training")
     train_group.add_argument("--test", action="store_true", help="Enable testing")
     train_group.add_argument("--train-type", choices=["lora", "dora", "full"], default=None)
+    train_group.add_argument(
+        "--force-dora",
+        action="store_true",
+        default=False,
+        help="Force DoRA even with quantized models (dequantizes weights each step)",
+    )
     train_group.add_argument("--optimizer", choices=["adam", "adamw", "muon"], default=None)
     train_group.add_argument("--batch-size", type=int, default=None)
     train_group.add_argument("--iters", type=int, default=None)
@@ -530,6 +537,16 @@ def build_parser() -> argparse.ArgumentParser:
 # =============================================================================
 
 
+def _model_is_quantized(model: nn.Module) -> bool:
+    """Check if any model layer uses quantized weights."""
+    if hasattr(model, "args") and getattr(model.args, "quantization", None):
+        return True
+    return any(
+        isinstance(m, (nn.QuantizedLinear, nn.QuantizedEmbedding))
+        for _, m in model.named_modules()
+    )
+
+
 def train_model(
     args: argparse.Namespace,
     model: nn.Module,
@@ -551,6 +568,21 @@ def train_model(
         raise ValueError(
             f"Requested to train {args.num_layers} layers but model has {len(model.layers)}"
         )
+
+    if args.train_type == "dora" and _model_is_quantized(model):
+        if getattr(args, "force_dora", False):
+            print_warning(
+                "DoRA with quantized models dequantizes all weights every forward pass, "
+                "negating quantization memory savings and reducing speed. "
+                "Proceeding anyway due to --force-dora."
+            )
+        else:
+            print_warning(
+                "DoRA with quantized models dequantizes all weights every forward pass, "
+                "negating quantization memory savings and reducing speed. "
+                "Falling back to LoRA. Use --force-dora to override."
+            )
+            args.train_type = "lora"
 
     if args.train_type == "full":
         for layer in model.layers[-max(args.num_layers, 0) :]:
