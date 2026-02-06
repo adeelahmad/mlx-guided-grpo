@@ -20,10 +20,10 @@
 
 set -e  # Exit on first error (we handle restart logic manually)
 
-# Configuration
-MODEL="/Users/adeelahmad/.cache/lm-studio/models/lmstudio-community/Qwen-4B-Thinking-2507.zz.q"
-ADAPTER="adapters/factual_v4421"
-DATA="/Users/adeelahmad/work/rewardable_dataset/v9"
+# Configuration - update these paths for your environment
+MODEL="path/to/your/model"
+ADAPTER="adapters/my_adapter"
+DATA="path/to/your/dataset"  # Hermes-formatted data (aligned with Qwen)
 
 # Auto-restart settings
 MAX_RESTARTS=10
@@ -45,44 +45,45 @@ for arg in "$@"; do
     esac
 done
 
-# Activate conda environment
-source /opt/homebrew/Caskroom/miniforge/base/etc/profile.d/conda.sh
-conda activate p311
+# Activate conda environment (uncomment and update for your setup)
+# source /opt/homebrew/Caskroom/miniforge/base/etc/profile.d/conda.sh
+# conda activate myenv
 
 # Training function
 run_training() {
-    python -m mlx_grpo.train \
-        --model "$MODEL" \
-        --reference-model-path "$MODEL" \
+    python -m mlx_grpo.train  \
+        --model "$MODEL"  \
         --train \
-        --train-type lora \
+        --train-type dora \
         --data "$DATA" \
-        --reward-functions hierarchical_rewards \
-        --reward-weights "[1.0]" \
+        --reward-weights "[1.3]" \
         --grpo-loss-type dr_grpo \
         --epsilon 0.02 \
         --epsilon-high 0.05 \
-        --beta 0.02 \
-        --group-size 2 \
-        --max-completion-length 192 \
-        --continuation-tokens 164 \
-        --temperature 1.0 \
+        --beta 0.08 \
+        --group-size 3 \
+        --max-completion-length 256 \
+        --continuation-tokens 64 \
+        --temperature 0.85 \
         --batch-size 1 \
-        --gradient-accumulation-steps 1 \
+        --gradient-accumulation-steps 3 \
         --learning-rate 3e-6 \
         --importance-sampling-level sequence \
         --steps-per-report 1 \
-        --steps-per-eval 50 \
-        --save-every 2 \
+        --steps-per-eval 0 \
+        --save-every 5 \
         --iters 2000 \
         --adapter-path "$ADAPTER" \
-        --wandb mlx-lm-grpo-v8-stabled-v2 \
+        --wandb my-experiment-name \
         --cache-dataset \
-        --shuffle-data \
-        --enforce-thinking \
-        --grad-checkpoint \
         --keep-last-n-checkpoints "$KEEP_LAST_N_CHECKPOINTS" \
-        --resume
+        --curriculum-enabled \
+        --curriculum-start-ratio 1.0 \
+        --curriculum-end-ratio 0.0 \
+        --curriculum-warmup-iters 0 \
+        --curriculum-taper-iters 1000 --shuffle-data --shuffle-seed $RANDOM  \
+        --resume --balanced-shuffle --lora-rank 32 --lora-alpha 64 --lora-dropout 0.01 --seed $RANDOM  --enforce-thinking --exam-phase-recovery-ratio 0.5
+
 }
 
 # Trap Ctrl+C to exit cleanly

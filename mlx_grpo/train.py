@@ -39,11 +39,13 @@ from mlx_lm.utils import load, load_tokenizer, save_config
 
 from .trainer.datasets import CacheDataset, load_dataset
 from .trainer.grpo_reward_functions import (
+    REWARD_REGISTRY,
     get_default_reward_functions,
     get_reward_function,
     list_available_reward_functions,
 )
 from .trainer.grpo_trainer import GRPOTrainingArgs, evaluate_grpo, train_grpo
+from .trainer.type_system_v2.bridge import create_v2_coordinator, v2_reward_adapter
 from .utils import from_pretrained, fuse_and_save_model
 from .visuals import (
     Colors,
@@ -198,7 +200,8 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "load_in_6bits": False,
     "load_in_8bits": False,
     "train_type": "lora",
-    "optimizer": "adam",
+    "force_dora": True,
+    "optimizer": "adamw",
     "optimizer_config": {"adam": {}, "adamw": {}, "muon": {}},
     "data": "data/",
     "seed": 0,
@@ -247,6 +250,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "cross_sampling_truncation_marker": "\n[...truncated for brevity...]\n",
     # Dataset Options
     "shuffle_data": True,
+    "balanced_shuffle": True,
     "shuffle_seed": 42,
     "require_think_tags": True,
     # Crash Recovery
@@ -287,6 +291,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "continuation_tokens": 256,
     "continuation_force_answer_ratio": 0.8,
     "two_phase_samples_per_group": -1,
+    "exam_phase_recovery_ratio": 0.5,
     # Smart Truncation
     "smart_truncation_enabled": False,
     "max_extreme_tokens": 1024,
@@ -388,6 +393,12 @@ def build_parser() -> argparse.ArgumentParser:
     train_group.add_argument("--train", action="store_true", help="Enable training")
     train_group.add_argument("--test", action="store_true", help="Enable testing")
     train_group.add_argument("--train-type", choices=["lora", "dora", "full"], default=None)
+    train_group.add_argument(
+        "--force-dora",
+        action="store_true",
+        default=True,
+        help="Force DoRA even with quantized models (dequantizes weights each step)",
+    )
     train_group.add_argument("--optimizer", choices=["adam", "adamw", "muon"], default=None)
     train_group.add_argument("--batch-size", type=int, default=None)
     train_group.add_argument("--iters", type=int, default=None)
@@ -440,6 +451,8 @@ def build_parser() -> argparse.ArgumentParser:
     data_group.add_argument("--force-reload", action="store_true", default=None)
     data_group.add_argument("--shuffle-data", action="store_true", default=None)
     data_group.add_argument("--no-shuffle-data", action="store_true", default=False)
+    data_group.add_argument("--balanced-shuffle", action="store_true", default=None)
+    data_group.add_argument("--no-balanced-shuffle", action="store_true", default=False)
     data_group.add_argument("--shuffle-seed", type=int, default=None)
     data_group.add_argument("--require-think-tags", action="store_true", default=None)
     data_group.add_argument("--no-require-think-tags", action="store_true", default=False)
@@ -490,6 +503,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=2,
         help="Max samples per group to apply two-phase recovery. -1 = all (default).",
     )
+    twophase_group.add_argument(
+        "--exam-phase-recovery-ratio",
+        type=float,
+        default=None,
+        help="Ratio of incomplete exam samples (missing </think>) that get phase 2 recovery. "
+        "Completion is truncated, '... </think>\\n\\boxed{' is injected, and model "
+        "completes the boxed answer. Injected tokens are masked from loss. "
+        "Default: 0.5 (50%% of group).",
+    )
 
     # Curriculum scaffolding
     curriculum_group = parser.add_argument_group("Curriculum")
@@ -515,6 +537,16 @@ def build_parser() -> argparse.ArgumentParser:
 # =============================================================================
 
 
+def _model_is_quantized(model: nn.Module) -> bool:
+    """Check if any model layer uses quantized weights."""
+    if hasattr(model, "args") and getattr(model.args, "quantization", None):
+        return True
+    return any(
+        isinstance(m, (nn.QuantizedLinear, nn.QuantizedEmbedding))
+        for _, m in model.named_modules()
+    )
+
+
 def train_model(
     args: argparse.Namespace,
     model: nn.Module,
@@ -536,6 +568,21 @@ def train_model(
         raise ValueError(
             f"Requested to train {args.num_layers} layers but model has {len(model.layers)}"
         )
+
+    if args.train_type == "dora" and _model_is_quantized(model):
+        if getattr(args, "force_dora", False):
+            print_warning(
+                "DoRA with quantized models dequantizes all weights every forward pass, "
+                "negating quantization memory savings and reducing speed. "
+                "Proceeding anyway due to --force-dora."
+            )
+        else:
+            print_warning(
+                "DoRA with quantized models dequantizes all weights every forward pass, "
+                "negating quantization memory savings and reducing speed. "
+                "Falling back to LoRA. Use --force-dora to override."
+            )
+            args.train_type = "lora"
 
     if args.train_type == "full":
         for layer in model.layers[-max(args.num_layers, 0) :]:
@@ -569,6 +616,15 @@ def train_model(
         args.optimizer.lower()
     ]
     optimizer = opt_class(learning_rate=lr, **optimizer_config)
+
+    # Create V2 type coordinator for type-aware rewards
+    type_coordinator = create_v2_coordinator(tokenizer)
+
+    # Register backward-compatible type_aware_strict / type_aware_reward aliases
+    # so existing configs (e.g. train.sh) continue to work.
+    _v2_adapter = v2_reward_adapter(type_coordinator)
+    for _alias in ("type_aware_strict", "type_aware_reward"):
+        REWARD_REGISTRY[_alias] = _v2_adapter
 
     # Setup reward functions
     if args.reward_functions_file:
@@ -622,6 +678,7 @@ def train_model(
         cross_sampling_seed=args.cross_sampling_seed,
         cross_sampling_truncation_marker=args.cross_sampling_truncation_marker,
         shuffle_data=args.shuffle_data,
+        balanced_shuffle=args.balanced_shuffle,
         shuffle_seed=args.shuffle_seed,
         require_think_tags=args.require_think_tags,
         # Crash recovery
@@ -662,6 +719,7 @@ def train_model(
         continuation_tokens=args.continuation_tokens,
         continuation_force_answer_ratio=args.continuation_force_answer_ratio,
         two_phase_samples_per_group=args.two_phase_samples_per_group,
+        exam_phase_recovery_ratio=args.exam_phase_recovery_ratio,
         # Smart truncation
         smart_truncation_enabled=args.smart_truncation_enabled,
         max_extreme_tokens=args.max_extreme_tokens,
@@ -703,6 +761,7 @@ def train_model(
         reward_funcs=reward_funcs,
         args=grpo_args,
         training_callback=training_callback,
+        type_coordinator=type_coordinator,
     )
 
 
@@ -877,6 +936,8 @@ def main(args: dict | argparse.Namespace | None = None) -> None:
         args.resume_from_checkpoint = True
     if getattr(args, "no_shuffle_data", False):
         args.shuffle_data = False
+    if getattr(args, "no_balanced_shuffle", False):
+        args.balanced_shuffle = False
     if getattr(args, "no_require_think_tags", False):
         args.require_think_tags = False
     if getattr(args, "no_fuse", False):

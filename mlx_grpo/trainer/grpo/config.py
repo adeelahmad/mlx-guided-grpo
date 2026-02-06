@@ -144,6 +144,13 @@ class GRPOTrainingArgs(BaseTrainingArgs):
         default=True,
         metadata={"help": "Shuffle training data at start."},
     )
+    balanced_shuffle: bool = field(
+        default=True,
+        metadata={
+            "help": "Use type-balanced shuffling to maintain even distribution of sample types "
+            "throughout the dataset. Ensures each batch has balanced type representation."
+        },
+    )
     shuffle_seed: int = field(
         default=42,
         metadata={"help": "Random seed for data shuffling."},
@@ -303,6 +310,15 @@ class GRPOTrainingArgs(BaseTrainingArgs):
             "-1 means all incomplete samples get recovery. "
             "E.g., group_size=4, two_phase_samples_per_group=2 means "
             "only 2 incomplete samples per group get 2nd phase recovery."
+        },
+    )
+    exam_phase_recovery_ratio: float = field(
+        default=0.5,
+        metadata={
+            "help": "Ratio of incomplete exam completions (missing </think>) that get "
+            "phase 2 recovery. The completion is truncated and '... </think>\\n\\boxed{' "
+            "is injected so the model can complete the boxed answer. "
+            "Injected tokens are masked from loss. Range [0.0, 1.0]. Default: 0.5."
         },
     )
 

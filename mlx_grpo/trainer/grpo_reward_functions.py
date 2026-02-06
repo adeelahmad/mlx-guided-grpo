@@ -33,6 +33,12 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from .hierarchical_rewards_v3 import batch_hierarchical_reward, hierarchical_reward
 
+# Import tool calling rewards (auto-registers via decorators)
+try:
+    from . import tool_calling_reward
+except ImportError:
+    logger.warning("Tool calling rewards not available")
+
 # --- Soft Dependencies Configuration ---
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
@@ -1170,6 +1176,9 @@ def r1_answer_quality_reward(
     return scores
 
 
+_RE_BOXED_ACC = re.compile(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}")
+
+
 @register_reward_function("r1_semantic_similarity_reward")
 def r1_semantic_similarity_reward(
     prompts: List[str],
@@ -1201,6 +1210,14 @@ def r1_semantic_similarity_reward(
             scores.append(0.0)
             continue
 
+        # Extract \boxed{} content if present
+        gen_box = _RE_BOXED_ACC.search(gen_ans)
+        if gen_box:
+            gen_ans = gen_box.group(1).strip()
+        ref_box = _RE_BOXED_ACC.search(ref_ans)
+        if ref_box:
+            ref_ans = ref_box.group(1).strip()
+
         if gen_ans.strip().lower() == ref_ans.strip().lower():
             scores.append(1.0)
             continue
@@ -1225,12 +1242,19 @@ def r1_accuracy_reward_func(
     answer: List[str],
     types: Optional[List[str]] = None,
 ) -> List[float]:
-    """Exact match accuracy reward."""
+    """Exact match accuracy reward with \\boxed{} extraction."""
     scores = []
     for c, a in zip(completions, answer):
-        pred = r1_extract_xml_answer(c).strip().lower()
-        ref = a.strip().lower()
-        scores.append(1.0 if pred == ref else 0.0)
+        pred = r1_extract_xml_answer(c).strip()
+        ref = a.strip()
+        # Extract \boxed{} content if present
+        pred_box = _RE_BOXED_ACC.search(pred)
+        if pred_box:
+            pred = pred_box.group(1).strip()
+        ref_box = _RE_BOXED_ACC.search(ref)
+        if ref_box:
+            ref = ref_box.group(1).strip()
+        scores.append(1.0 if pred.lower() == ref.lower() else 0.0)
     return scores
 
 

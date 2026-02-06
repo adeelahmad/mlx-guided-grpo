@@ -117,18 +117,52 @@ class IterationMetrics:
 
 
 def extract_thinking_length(text: str) -> int:
-    """Extract word count of thinking section."""
+    """Extract word count of thinking section.
+
+    Handles both complete (<think>...</think>) and truncated (<think>...)
+    thinking blocks.
+    """
+    # Complete thinking block
     match = re.search(r"<think>(.*?)</think>", text, re.DOTALL)
+    if match:
+        return len(match.group(1).split())
+    # Truncated: <think> without </think>
+    match = re.search(r"<think>(.*)", text, re.DOTALL)
     if match:
         return len(match.group(1).split())
     return 0
 
 
 def extract_answer_length(text: str) -> int:
-    """Extract word count of answer section."""
-    match = re.search(r"<answer>(.*?)</answer>", text, re.DOTALL)
-    if match:
-        return len(match.group(1).split())
+    """Extract word count of answer section.
+
+    Checks multiple answer formats:
+    1. Content after </think> (primary for thinking models)
+    2. \\boxed{} content (for exam/math)
+    3. <tool_call>...</tool_call> content (for tool calling)
+    4. <answer>...</answer> tags (legacy)
+    """
+    # Content after </think>
+    if "</think>" in text:
+        after_think = text.split("</think>", 1)[-1].strip()
+        if after_think:
+            return len(after_think.split())
+
+    # \boxed{} content
+    boxed_match = re.search(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}", text)
+    if boxed_match:
+        return len(boxed_match.group(1).split())
+
+    # <tool_call>...</tool_call> content
+    tool_match = re.search(r"<tool_call>(.*?)</tool_call>", text, re.DOTALL)
+    if tool_match:
+        return len(tool_match.group(1).split())
+
+    # Legacy <answer>...</answer> tags
+    answer_match = re.search(r"<answer>(.*?)</answer>", text, re.DOTALL)
+    if answer_match:
+        return len(answer_match.group(1).split())
+
     return 0
 
 
@@ -139,9 +173,11 @@ class RolloutLogger:
         self,
         config: RolloutLoggerConfig,
         adapter_file: Optional[str] = None,
+        training_args: Optional[Any] = None,  # Full GRPOTrainingArgs for wandb config
     ):
         self.config = config
         self.adapter_file = adapter_file
+        self.training_args = training_args
 
         if config.output_dir:
             self.output_dir = Path(config.output_dir)
@@ -209,11 +245,19 @@ class RolloutLogger:
                     resume_mode = "must"  # Must resume if we have an ID
                     logger.info(f"Resuming WandB run: {run_id}")
 
+                # Convert training args to dict for wandb
+                import dataclasses
+                config_dict = {}
+                if self.training_args is not None and dataclasses.is_dataclass(self.training_args):
+                    config_dict = dataclasses.asdict(self.training_args)
+                    logger.info(f"Sending {len(config_dict)} training config fields to WandB")
+
                 wandb.init(
                     project=self.config.wandb_project or "grpo-training",
                     name=self.config.wandb_run_name,
                     resume=resume_mode,
                     id=run_id,
+                    config=config_dict,  # Send all training config to wandb
                 )
 
                 # Save run ID for future resumes
