@@ -35,7 +35,7 @@ from mlx_lm.tuner.callbacks import TrainingCallback
 from tqdm import tqdm
 
 # Import from base module
-from .base import BaseTrainingArgs, grad_checkpoint
+from .base import BaseTrainingArgs, grad_checkpoint, normalize_sample_type, is_tool_call_type
 
 # Import exam reward function
 from .exam_reward import RewardWeights as ExamRewardWeights
@@ -95,6 +95,10 @@ from .grpo_reward_functions import (
 from .rollout_logger import RolloutLogger, RolloutLoggerConfig
 from .training_monitor import MonitorConfig, ThresholdConfig, TrainingMonitor
 
+# V2 type system
+from .type_system_v2.bridge import v2_reward_adapter
+from .type_system_v2.coordinator import TypeCoordinator
+
 if TYPE_CHECKING:
     from typing import Any, Callable, Dict, Tuple
 
@@ -106,6 +110,201 @@ __all__ = [
     "train_grpo",
     "train_grpo_with_recovery",
 ]
+
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+
+def _print_training_config(args: GRPOTrainingArgs) -> None:
+    """Print comprehensive training configuration at startup.
+
+    Args:
+        args: Training configuration
+    """
+    import dataclasses
+
+    tqdm.write("\n" + "=" * 80)
+    tqdm.write("TRAINING CONFIGURATION")
+    tqdm.write("=" * 80)
+
+    # Group related settings
+    sections = {
+        "Core Training": [
+            "batch_size", "iters", "learning_rate", "group_size",
+            "gradient_accumulation_steps", "grad_checkpoint"
+        ],
+        "GRPO Algorithm": [
+            "grpo_loss_type", "beta", "epsilon", "epsilon_high",
+            "temperature", "max_completion_length", "importance_sampling_level"
+        ],
+        "Curriculum Learning": [
+            "curriculum_enabled", "curriculum_start_ratio", "curriculum_end_ratio",
+            "curriculum_warmup_iters", "curriculum_taper_iters", "curriculum_truncation_mode",
+            "multi_curriculum_rollout"
+        ],
+        "Two-Phase Generation": [
+            "enforce_thinking", "continuation_tokens", "think_start_token",
+            "think_end_token", "answer_end_token"
+        ],
+        "Rewards": [
+            "reward_functions", "reward_weights"
+        ],
+        "CGS (Dual Gradient)": [
+            "thinking_layers", "answer_layers", "thinking_gradient_weight",
+            "answer_gradient_weight", "thinking_learning_rate", "answer_learning_rate"
+        ],
+        "Checkpointing": [
+            "save_every", "keep_last_n_checkpoints", "keep_best_n_checkpoints",
+            "adapter_file"
+        ],
+        "Logging": [
+            "steps_per_report", "steps_per_eval", "log_rollouts",
+            "log_rollouts_to_wandb", "wandb_project"
+        ],
+        "Monitoring": [
+            "enable_monitor", "monitor_kl_warning", "monitor_kl_critical",
+            "monitor_reward_warning", "monitor_reward_critical"
+        ],
+    }
+
+    for section_name, field_names in sections.items():
+        tqdm.write(f"\n{section_name}:")
+        for field_name in field_names:
+            if hasattr(args, field_name):
+                value = getattr(args, field_name)
+                # Format value nicely
+                if isinstance(value, float):
+                    value_str = f"{value:.6f}" if value < 0.01 else f"{value:.4f}"
+                elif isinstance(value, list) and len(value) > 5:
+                    value_str = f"[...{len(value)} items...]"
+                else:
+                    value_str = str(value)
+                tqdm.write(f"  {field_name:40s} = {value_str}")
+
+    # Print all other fields not in sections
+    tqdm.write(f"\nOther Settings:")
+    all_section_fields = set(field for fields in sections.values() for field in fields)
+    for field in dataclasses.fields(args):
+        if field.name not in all_section_fields:
+            value = getattr(args, field.name)
+            if isinstance(value, float):
+                value_str = f"{value:.6f}" if value < 0.01 else f"{value:.4f}"
+            elif isinstance(value, list) and len(value) > 5:
+                value_str = f"[...{len(value)} items...]"
+            else:
+                value_str = str(value)
+            tqdm.write(f"  {field.name:40s} = {value_str}")
+
+    tqdm.write("=" * 80 + "\n")
+
+
+def _format_type_aware_reward_metrics(
+    reward_funcs: list,
+    avg_metrics: dict,
+    per_completion_rewards: dict | None = None,
+    type_info_list: list | None = None,
+    show_hit_limit: bool = False,
+) -> str:
+    """Format reward metrics with type-aware binary accuracy.
+
+    Args:
+        reward_funcs: List of reward functions
+        avg_metrics: Averaged metrics dict
+        per_completion_rewards: Per-completion reward breakdown
+        type_info_list: Type information for each completion
+        show_hit_limit: Whether to show hit_limit stats
+
+    Returns:
+        Formatted metrics string with type info and binary accuracy
+    """
+    # ANSI color codes
+    GREEN = "\033[92m"
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+
+    metrics_str = ""
+
+    # Type distribution
+    if type_info_list:
+        type_counts: dict[str, int] = {}
+        for type_info in type_info_list:
+            if isinstance(type_info, dict):
+                type_name = type_info.get("type", "unknown")
+            elif isinstance(type_info, str):
+                type_name = type_info
+            else:
+                type_name = "unknown"
+
+            type_counts[type_name] = type_counts.get(type_name, 0) + 1
+
+        if type_counts:
+            metrics_str += f"{BOLD}Type Distribution:{RESET}\n"
+            total = sum(type_counts.values())
+            for type_name, count in sorted(type_counts.items()):
+                pct = count / total * 100
+                metrics_str += f"  - {type_name}: {count}/{total} ({pct:.1f}%)\n"
+            metrics_str += "\n"
+
+    # Per-reward function metrics with binary accuracy
+    active_rewards = []
+    for reward_func in reward_funcs:
+        func_name = reward_func.__name__
+        mean_key = f"{func_name}_mean"
+        cov_key = f"{func_name}_coverage"
+
+        if mean_key in avg_metrics and avg_metrics.get(cov_key, 0) > 0:
+            active_rewards.append(reward_func)
+
+    if active_rewards:
+        metrics_str += f"{BOLD}Reward Functions:{RESET}\n"
+
+        for reward_func in active_rewards:
+            func_name = reward_func.__name__
+            mean_key = f"{func_name}_mean"
+            std_key = f"{func_name}_std"
+            cov_key = f"{func_name}_coverage"
+
+            display_name = func_name.replace("_reward_func", "").replace("r1_", "")
+            mean_val = avg_metrics.get(mean_key, 0.0)
+            std_val = avg_metrics.get(std_key, 0.0)
+            cov_val = avg_metrics.get(cov_key, 0.0)
+
+            # Calculate binary accuracy if per-completion data available
+            accuracy_str = ""
+            if per_completion_rewards and func_name in per_completion_rewards:
+                rewards = per_completion_rewards[func_name]
+                if rewards:
+                    # Binary: > 0.5 is correct, <= 0.5 is incorrect
+                    correct_count = sum(1 for r in rewards if not np.isnan(r) and r > 0.5)
+                    total_count = sum(1 for r in rewards if not np.isnan(r))
+
+                    if total_count > 0:
+                        accuracy = correct_count / total_count
+                        color = GREEN if accuracy > 0.7 else (YELLOW if accuracy > 0.4 else RED)
+                        accuracy_str = f" | {color}accuracy={accuracy:.1%} ({correct_count}/{total_count}){RESET}"
+
+            metrics_str += (
+                f"  - {BLUE}{display_name}{RESET}: "
+                f"mean={mean_val:.3f}, std={std_val:.3f}, cov={cov_val:.0%}"
+                f"{accuracy_str}\n"
+            )
+    else:
+        metrics_str += "  No active reward functions (all coverage=0)\n"
+
+    # Optionally show hit_limit (only if explicitly requested)
+    if show_hit_limit and "hit_max_tokens_ratio" in avg_metrics:
+        hit_ratio = avg_metrics["hit_max_tokens_ratio"]
+        if hit_ratio > 0:
+            color = YELLOW if hit_ratio > 0.1 else ""
+            reset = RESET if hit_ratio > 0.1 else ""
+            metrics_str += f"  - {color}Hit limit: {hit_ratio:.1%}{reset}\n"
+
+    return metrics_str
 
 
 # =============================================================================
@@ -264,6 +463,7 @@ def evaluate_grpo(
                 end_token=end_answer_token,
                 type_info=type_info,
                 generation_sub_batch_size=1,  # Generate one at a time to avoid GPU timeout
+                type_coordinator=type_coordinator,
             )
         )
 
@@ -376,6 +576,7 @@ def train_grpo(
     iterate_batches: Callable = iterate_grpo_batches,
     training_callback: TrainingCallback = None,
     end_answer_token: str = "</answer>",
+    type_coordinator: Optional[TypeCoordinator] = None,
 ):
     """Train a model using GRPO (Group Relative Policy Optimization).
 
@@ -388,6 +589,7 @@ def train_grpo(
     - SFT anchor with gradient alignment
     - Automatic crash recovery
     - Comprehensive logging and monitoring
+    - Type-aware rewards via V2 TypeCoordinator
 
     Args:
         model: The policy model to train
@@ -402,6 +604,7 @@ def train_grpo(
         iterate_batches: Batch iterator function
         training_callback: Optional callback for training events
         end_answer_token: End token for generation
+        type_coordinator: Optional V2 TypeCoordinator for type-dispatched rewards
     """
     if args is None:
         args = GRPOTrainingArgs()
@@ -413,6 +616,16 @@ def train_grpo(
             r1_soft_format_reward_func,
             r1_count_xml,
         ]
+
+    # If type coordinator provided, prepend type-dispatched reward
+    # (skip if reward list already contains a v2 adapter, e.g. from --reward-functions)
+    if type_coordinator is not None:
+        already_has_v2 = any(
+            getattr(f, "_is_v2_adapter", False) for f in reward_funcs
+        )
+        if not already_has_v2:
+            v2_reward = v2_reward_adapter(type_coordinator)
+            reward_funcs = [v2_reward] + list(reward_funcs)
 
     mx.set_wired_limit(mx.metal.device_info()["max_recommended_working_set_size"])
     world = mx.distributed.init()
@@ -444,6 +657,10 @@ def train_grpo(
         )
 
     state = [model.state, optimizer.state, mx.random.state]
+
+    # Print all training arguments at startup
+    if rank == 0:
+        _print_training_config(args)
 
     # Initialize Rollout Logger (placeholder)
     rollout_logger = None
@@ -636,16 +853,33 @@ def train_grpo(
             )
 
             curriculum_prefixes = []
-            for target in answer_text:
-                prefix = build_curriculum_prefix(
-                    target_completion=target,
-                    ratio=curriculum_ratio,
-                    think_start=args.think_start_token,
-                    think_end=args.think_end_token,
-                    by_lines=args.curriculum_by_lines,
-                    truncation_mode=args.curriculum_truncation_mode,
-                    preserve_intuition=args.curriculum_preserve_intuition,
-                )
+            for idx, target in enumerate(answer_text):
+                # Get type for this example
+                raw_type_info = type_info[idx] if type_info and idx < len(type_info) else None
+
+                # Normalize type using centralized function
+                example_type = normalize_sample_type(raw_type_info)
+
+                # Use type-aware curriculum if available (tool_call types)
+                if is_tool_call_type(example_type):
+                    from mlx_grpo.trainer.type_system_v2.generators.tool_call import ToolCallRolloutGenerator
+
+                    _tc_gen = ToolCallRolloutGenerator()
+                    prefix = _tc_gen.apply_curriculum(
+                        answer=target,
+                        ratio=curriculum_ratio,
+                    )
+                else:
+                    # Default thinking-based curriculum
+                    prefix = build_curriculum_prefix(
+                        target_completion=target,
+                        ratio=curriculum_ratio,
+                        think_start=args.think_start_token,
+                        think_end=args.think_end_token,
+                        by_lines=args.curriculum_by_lines,
+                        truncation_mode=args.curriculum_truncation_mode,
+                        preserve_intuition=args.curriculum_preserve_intuition,
+                    )
                 curriculum_prefixes.append(prefix)
 
         # Parse scaffold levels for multi-curriculum rollout
@@ -717,6 +951,13 @@ def train_grpo(
                 and args.generation_sub_batch_size is not None
                 else 1
             ),
+            exam_phase_recovery_ratio=(
+                args.exam_phase_recovery_ratio
+                if hasattr(args, "exam_phase_recovery_ratio")
+                and args.exam_phase_recovery_ratio is not None
+                else 0.5
+            ),
+            type_coordinator=type_coordinator,
         )
 
         _safe_eval(all_completions, checkpoint="generation_complete")
@@ -990,6 +1231,10 @@ def train_grpo(
                 metrics["scaffold_levels_min"] = min(scaffold_levels)
                 metrics["scaffold_levels_max"] = max(scaffold_levels)
 
+        # Store per-completion rewards and types for console logging
+        metrics["_per_completion_rewards"] = per_completion_rewards
+        metrics["_expanded_types"] = expanded_types
+
         # Log rollouts
         if rollout_logger and current_iteration[0] % args.log_rollouts_every_n_steps == 0:
             rewards_per_func = {
@@ -1147,6 +1392,7 @@ def train_grpo(
                 resume_from_iteration=start_iteration - 1 if start_iteration > 1 else 0,
             ),
             adapter_file=str(args.adapter_file) if args.adapter_file else None,
+            training_args=args,  # Pass full training config for wandb
         )
         if start_iteration > 1:
             tqdm.write(f"Rollout logging enabled (resuming): {output_dir}")
@@ -1267,7 +1513,10 @@ def train_grpo(
             steps += 1
 
             for k, v in metrics.items():
-                if k in accumulated_metrics:
+                # Special keys starting with "_" are stored as-is (not accumulated)
+                if k.startswith("_"):
+                    accumulated_metrics[k] = v  # Just store latest value
+                elif k in accumulated_metrics:
                     accumulated_metrics[k] += v
                 else:
                     accumulated_metrics[k] = v
@@ -1286,7 +1535,6 @@ def train_grpo(
                 stop = time.perf_counter()
 
                 train_loss = mx.distributed.all_sum(losses).item() / (steps * world_size)
-                avg_metrics = {k: v / (steps * world_size) for k, v in accumulated_metrics.items()}
                 n_tokens = mx.distributed.all_sum(n_tokens).item()
                 learning_rate = optimizer.learning_rate.item()
                 it_sec = args.steps_per_report / (stop - start)
@@ -1296,7 +1544,18 @@ def train_grpo(
 
                 if rank == 0:
                     avg_metrics = {}
+                    latest_per_completion_rewards = None
+                    latest_expanded_types = None
+
                     for k, v in accumulated_metrics.items():
+                        # Skip special keys that shouldn't be accumulated
+                        if k.startswith("_"):
+                            if k == "_per_completion_rewards":
+                                latest_per_completion_rewards = v  # Keep latest, don't average
+                            elif k == "_expanded_types":
+                                latest_expanded_types = v  # Keep latest, don't average
+                            continue
+
                         accumulated_v = v / (steps * world_size)
                         if isinstance(accumulated_v, mx.array):
                             avg_metrics[k] = float(accumulated_v.item())
@@ -1305,21 +1564,14 @@ def train_grpo(
 
                     pbar.set_postfix({"loss": f"{train_loss:.3f}", "it/s": f"{it_sec:.3f}"})
 
-                    reward_metrics_str = ""
-                    for reward_func in reward_funcs:
-                        func_name = reward_func.__name__
-                        mean_key = f"{func_name}_mean"
-                        std_key = f"{func_name}_std"
-                        cov_key = f"{func_name}_coverage"
-
-                        if mean_key in avg_metrics:
-                            display_name = func_name.replace("_reward_func", "").replace("r1_", "")
-                            reward_metrics_str += (
-                                f"  - {display_name}: "
-                                f"mean={avg_metrics[mean_key]:.3f}, "
-                                f"std={avg_metrics[std_key]:.3f}, "
-                                f"cov={avg_metrics[cov_key]:.2%}\n"
-                            )
+                    # Generate type-aware reward metrics with binary accuracy
+                    reward_metrics_str = _format_type_aware_reward_metrics(
+                        reward_funcs=reward_funcs,
+                        avg_metrics=avg_metrics,
+                        per_completion_rewards=latest_per_completion_rewards,
+                        type_info_list=latest_expanded_types,
+                        show_hit_limit=False,  # Don't show hit_limit in individual rewards section
+                    )
 
                     loss_str = f"Loss: {train_loss:.3f}"
                     if "thinking_token_ratio" in avg_metrics:

@@ -23,6 +23,8 @@ import types
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .base import normalize_sample_type, is_tool_call_type
+
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizer
 
@@ -62,6 +64,7 @@ class GRPODataset:
         ground_truth_key: Key for ground truth (exam-style datasets)
         require_think_tags: Skip samples without <think> tags
         shuffle: Whether to shuffle the data
+        balanced_shuffle: Use type-balanced shuffling (maintains type distribution)
         seed: Random seed for shuffling
     """
 
@@ -77,6 +80,7 @@ class GRPODataset:
         text_completion_key: str | None = None,
         require_think_tags: bool = True,
         shuffle: bool = True,
+        balanced_shuffle: bool = True,
         seed: int = 42,
     ):
         self._data: list[tuple] = []
@@ -114,25 +118,33 @@ class GRPODataset:
                 type_info["is_exam"] = True
                 exam_count += 1
 
-            # Skip samples without think tags if required (but NOT for exam type)
-            if require_think_tags and not is_exam_type:
+            # Skip samples without think tags if required (but NOT for exam type or tool_call)
+            sample_type = type_info.get("type")
+            is_tool_call_sample = is_tool_call_type(sample_type)
+
+            if require_think_tags and not is_exam_type and not is_tool_call_sample:
                 if "<think>" not in answer_str or "</think>" not in answer_str:
                     skipped_count += 1
                     continue
 
             # Tokenize
             if text_completion_key is None:
-                default_system_str = self._get_system_prompt(is_exam_type)
+                default_system_str = self._get_system_prompt(sample_type, is_exam_type)
                 system_str = item.get(system_key, default_system_str)
 
                 messages = [
                     {"role": "system", "content": system_str},
                     {"role": "user", "content": prompt_str},
                 ]
+
+                # Get chat template config from type system (if available)
+                chat_template_config = self._get_chat_template_config(sample_type)
+
                 prompt_tokens = tokenizer.apply_chat_template(
                     messages,
                     add_generation_prompt=True,
                     tokenize=True,
+                    chat_template_config=chat_template_config,
                 )
             else:
                 prompt_tokens = tokenizer.encode(str(item[text_completion_key]))
@@ -147,12 +159,111 @@ class GRPODataset:
 
         # Shuffle data
         if shuffle and self._data:
-            random.seed(seed)
-            random.shuffle(self._data)
-            logging.info(f"[GRPODataset] Shuffled {len(self._data)} samples (seed={seed})")
+            if balanced_shuffle:
+                self._balanced_shuffle(seed)
+                logging.info(f"[GRPODataset] Shuffled {len(self._data)} samples with type balancing (seed={seed})")
+            else:
+                random.seed(seed)
+                random.shuffle(self._data)
+                logging.info(f"[GRPODataset] Shuffled {len(self._data)} samples (seed={seed})")
 
-    def _get_system_prompt(self, is_exam: bool) -> str:
-        """Get default system prompt."""
+    def _balanced_shuffle(self, seed: int) -> None:
+        """Shuffle data while maintaining balanced type distribution.
+
+        Groups samples by type, shuffles within each group, then interleaves
+        types to ensure balanced distribution throughout the dataset.
+
+        Args:
+            seed: Random seed for reproducibility
+        """
+        random.seed(seed)
+
+        # Group samples by type
+        type_groups: dict[str, list[tuple]] = {}
+        for sample in self._data:
+            # Extract type from type_info (last element of tuple)
+            type_info = sample[4]  # (prompt_tokens, answer_tokens, prompt_str, answer_str, type_info)
+            sample_type = normalize_sample_type(type_info.get("type"))
+
+            if sample_type not in type_groups:
+                type_groups[sample_type] = []
+            type_groups[sample_type].append(sample)
+
+        # Shuffle within each type group
+        for type_key in type_groups:
+            random.shuffle(type_groups[type_key])
+
+        # Log type distribution
+        type_counts = {k: len(v) for k, v in type_groups.items()}
+        logging.info(f"[GRPODataset] Type distribution: {type_counts}")
+
+        # Interleave types to maintain balance
+        # Use weighted round-robin to distribute types proportionally
+        shuffled_data = []
+        type_keys = list(type_groups.keys())
+        type_indices = {k: 0 for k in type_keys}
+
+        # Calculate how many samples to take per round for each type
+        # to maintain proportional distribution
+        total_samples = len(self._data)
+        num_types = len(type_keys)
+
+        # Target number of samples per type per round (proportional to type frequency)
+        samples_per_round = {}
+        for type_key in type_keys:
+            type_ratio = len(type_groups[type_key]) / total_samples
+            samples_per_round[type_key] = max(1, round(type_ratio * num_types))
+
+        # Interleave with weighted distribution
+        while len(shuffled_data) < total_samples:
+            added_this_round = 0
+
+            # Try to add samples from each type proportionally
+            for type_key in type_keys:
+                available = len(type_groups[type_key]) - type_indices[type_key]
+                if available > 0:
+                    # Take up to samples_per_round items from this type
+                    num_to_take = min(samples_per_round[type_key], available)
+                    for _ in range(num_to_take):
+                        if type_indices[type_key] < len(type_groups[type_key]):
+                            shuffled_data.append(type_groups[type_key][type_indices[type_key]])
+                            type_indices[type_key] += 1
+                            added_this_round += 1
+
+            # If we didn't add anything, all types are exhausted (shouldn't happen)
+            if added_this_round == 0:
+                break
+
+        self._data = shuffled_data
+
+    def _get_system_prompt(self, sample_type: str | None, is_exam: bool) -> str:
+        """Get system prompt based on sample type.
+
+        Args:
+            sample_type: The type of sample (tool_call, math, exam, etc.)
+            is_exam: Whether this is an exam-type sample
+
+        Returns:
+            Appropriate system prompt for the type
+        """
+        # Normalize type first
+        normalized_type = normalize_sample_type(sample_type)
+
+        # Type-specific defaults
+        if is_tool_call_type(normalized_type):
+            # Hermes-style function calling (aligned with Qwen pre-training)
+            return """You are a helpful assistant with access to functions. When you need to use a function, respond ONLY with a JSON object in this exact format:
+
+{"name": "function_name", "arguments": "{\\"param1\\": \\"value1\\", \\"param2\\": \\"value2\\"}"}
+
+IMPORTANT:
+- Do NOT use <think> tags
+- Do NOT include explanations or boxed answers
+- Respond ONLY with the function call JSON
+- The arguments field must be a JSON-formatted string
+- Be precise and call the appropriate function when needed"""
+
+        # Default thinking-based prompt for math/exam/other
         return """I'm NeuralAI, an AI assistant. In this environment, I analyze problems carefully.
 
 <think>
@@ -166,6 +277,23 @@ class GRPODataset:
 1. Work through the problem in <think>...</think> tags
 2. Provide your final answer as \\boxed{answer}
 3. Add a brief explanation"""
+
+    def _get_chat_template_config(self, sample_type: str | None) -> dict[str, Any] | None:
+        """Get chat template config based on sample type.
+
+        Args:
+            sample_type: The type of sample (tool_call, math, exam, etc.)
+
+        Returns:
+            Chat template config dict or None if not needed
+        """
+        # Normalize type first
+        normalized_type = normalize_sample_type(sample_type)
+
+        if not normalized_type:
+            return None
+
+        return None
 
     def __getitem__(self, idx: int) -> tuple:
         return self._data[idx]
@@ -261,6 +389,7 @@ def create_dataset(
     # Get GRPO options from config
     require_think_tags = getattr(config, "require_think_tags", True)
     shuffle_data = getattr(config, "shuffle_data", True)
+    balanced_shuffle = getattr(config, "balanced_shuffle", True)
     shuffle_seed = getattr(config, "shuffle_seed", 42)
 
     # Apply cross-sampling if enabled
@@ -295,6 +424,7 @@ def create_dataset(
         type_key=type_feature,
         require_think_tags=require_think_tags,
         shuffle=shuffle_data,
+        balanced_shuffle=balanced_shuffle,
         seed=shuffle_seed,
     )
 

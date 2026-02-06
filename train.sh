@@ -21,9 +21,9 @@
 set -e  # Exit on first error (we handle restart logic manually)
 
 # Configuration
-MODEL="/Users/adeelahmad/.cache/lm-studio/models/lmstudio-community/Qwen-4B-Thinking-2507.zz.q"
-ADAPTER="adapters/factual_v4421"
-DATA="/Users/adeelahmad/work/rewardable_dataset/v9"
+MODEL="/Users/adeelahmad/.cache/lm-studio/models/lmstudio-community/Qwen-4B-Thinking-2507.zzz.q"
+ADAPTER="adapters/factual_v4425"
+DATA="/Users/adeelahmad/work/rewardable_dataset/v9"  # Hermes-formatted data (aligned with Qwen)
 
 # Auto-restart settings
 MAX_RESTARTS=10
@@ -52,37 +52,41 @@ conda activate p311
 # Training function
 run_training() {
     python -m mlx_grpo.train \
-        --model "$MODEL" \
+        --model "$MODEL"  \
         --reference-model-path "$MODEL" \
         --train \
         --train-type lora \
         --data "$DATA" \
-        --reward-functions hierarchical_rewards \
-        --reward-weights "[1.0]" \
+        --reward-weights "[1.3]" \
         --grpo-loss-type dr_grpo \
         --epsilon 0.02 \
         --epsilon-high 0.05 \
-        --beta 0.02 \
+        --beta 0.05 \
         --group-size 2 \
-        --max-completion-length 192 \
-        --continuation-tokens 164 \
+        --max-completion-length 256 \
+        --continuation-tokens 96 \
         --temperature 1.0 \
         --batch-size 1 \
         --gradient-accumulation-steps 1 \
         --learning-rate 3e-6 \
         --importance-sampling-level sequence \
         --steps-per-report 1 \
-        --steps-per-eval 50 \
+        --steps-per-eval 0 \
         --save-every 2 \
         --iters 2000 \
         --adapter-path "$ADAPTER" \
         --wandb mlx-lm-grpo-v8-stabled-v2 \
         --cache-dataset \
         --shuffle-data \
-        --enforce-thinking \
         --grad-checkpoint \
         --keep-last-n-checkpoints "$KEEP_LAST_N_CHECKPOINTS" \
-        --resume
+        --curriculum-enabled \
+        --curriculum-start-ratio 1.0 \
+        --curriculum-end-ratio 0.0 \
+        --curriculum-warmup-iters 0 \
+        --curriculum-taper-iters 1000 \
+        --resume --balanced-shuffle --lora-rank 4 --lora-alpha 10 --lora-dropout 0.05 --seed $RANDOM  --enforce-thinking --exam-phase-recovery-ratio 0.5
+        rm  "$ADAPTER"/optimizer_state.safetensors || echo done
 }
 
 # Trap Ctrl+C to exit cleanly

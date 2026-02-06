@@ -74,6 +74,13 @@ from .grpo_trainer import (
     train_grpo,
 )
 
+# Type System V2
+from .type_system_v2 import (
+    TypeCoordinator,
+    create_v2_coordinator,
+    v2_reward_adapter,
+)
+
 # Rewards
 from .rewards import (  # Backward compatibility
     REWARD_REGISTRY,
@@ -131,4 +138,8 @@ __all__ = [
     "ConcatenatedDataset",
     "create_dataset",
     "load_dataset",
+    # Type System V2
+    "TypeCoordinator",
+    "create_v2_coordinator",
+    "v2_reward_adapter",
 ]

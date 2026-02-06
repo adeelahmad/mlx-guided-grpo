@@ -1,337 +1,211 @@
-# Extensible Type System for MLX-GRPO
-
-**An elegant, powerful, convention-based type system using advanced Python metaprogramming.**
+# Type System V2 - SOLID Architecture
 
 ## Overview
 
-The type system automatically discovers and applies optimal configurations based on dataset type. It uses naming conventions and metaprogramming to make extending the system incredibly simple.
+The Type System V2 provides a clean, extensible architecture for handling different task types (tool calling, MCQ/exam, general Q&A) in the training pipeline.
 
-## Core Principle
+**Architecture**: EventBus + Metaclass auto-registration + Observer hooks + Template Method pattern
 
 ```
-type="math" → auto-discovers:
-  - MathReward           (reward function)
-  - MathGenerationStrategy  (generation config)
-  - MathDataLoader       (dataset loader)
-```
-
-**If not found → gracefully falls back to base classes with sensible defaults.**
-
-## Quick Start
-
-### 1. Using Built-in Types
-
-```python
-from mlx_grpo.trainer.type_system.auto_discovery import (
-    get_reward_for_type,
-    get_generation_strategy_for_type
-)
-
-# Auto-discover components for 'math' type
-reward = get_reward_for_type("math")
-strategy = get_generation_strategy_for_type("math")
-
-# Use them
-scores = reward.compute(prompts, completions, answers)
-max_len = strategy.get_max_length()  # 1024 for math
-```
-
-### 2. Creating a Custom Type (5 lines!)
-
-```python
-from mlx_grpo.trainer.type_system.auto_discovery import BaseReward
-
-class SummarizationReward(BaseReward):
-    """Auto-discovered for type='summarization'"""
-
-    def compute(self, prompts, completions, answers, types=None):
-        # Your reward logic
-        return [1.0 if len(c) < len(a) * 1.5 else 0.5
-                for c, a in zip(completions, answers)]
-```
-
-That's it! Automatically works for `type='summarization'` in your data.
-
-### 3. Custom Generation Strategy (3 lines!)
-
-```python
-from mlx_grpo.trainer.type_system.auto_discovery import BaseGenerationStrategy
-
-class SummarizationGenerationStrategy(BaseGenerationStrategy):
-    """Auto-discovered for type='summarization'"""
-
-    def get_max_length(self):
-        return 256  # Summaries are short
-
-    def get_temperature(self):
-        return 0.7  # Less creative for summaries
+TypeCoordinator (singleton, event bus owner)
+   |
+   |-- EventBus (publish/subscribe for lifecycle events)
+   |
+   +-- BaseReward ─────────> ToolCallReward, MCQReward, GeneralQNAReward
+   +-- BaseDatasetLoader ──> ToolCallDatasetLoader, MCQDatasetLoader, GeneralQNADatasetLoader
+   +-- BaseRolloutGenerator
+          |
+          +-- ToolCallRolloutGenerator  (no phase recovery, function scaffolding)
+          |
+          +-- ThinkingBasedGenerator    (shared: curriculum, completeness, phase recovery)
+                 |
+                 +-- MCQRolloutGenerator       (exam-specific recovery, longer generation)
+                 +-- GeneralQNARolloutGenerator (default settings)
 ```
 
 ## Built-in Types
 
-| Type | Reward | Generation | Description |
-|------|--------|------------|-------------|
-| `math` | MathReward | MathGenerationStrategy | Mathematical reasoning |
-| `tool` / `tool_call` | ToolReward | ToolGenerationStrategy | Function calling |
-| `code` | - | - | Code generation |
-| `thinking` | - | - | Reasoning with <think> tags |
+| Type | Canonical Name | Aliases | Description |
+|------|---------------|---------|-------------|
+| Tool Call | `tool_call` | `function_call`, `tool`, `function`, `hermes` | Function/API calling tasks |
+| MCQ | `mcq` | `exam`, `aime`, `multiple_choice`, `letter_answer` | Multiple choice & exam tasks |
+| General QNA | `general_qna` | `math`, `reasoning`, `general`, `qa`, `None` | Default for all other tasks |
 
-## Architecture
+## Quick Start
 
-### Directory Structure
-
-```
-mlx_grpo/trainer/type_system/
-├── auto_discovery.py          # Core discovery engine
-├── registry.py                # Original registry (Protocol-based)
-├── rewards/
-│   ├── __init__.py
-│   ├── math_reward.py         # MathReward class
-│   └── tool_reward.py         # ToolReward class
-├── generation/
-│   ├── __init__.py
-│   ├── math_strategy.py       # MathGenerationStrategy
-│   └── tool_strategy.py       # ToolGenerationStrategy
-└── loaders/
-    └── __init__.py
-```
-
-### How It Works
-
-1. **Naming Convention**:
-   - Type `"math"` → looks for class `MathReward`
-   - Type `"tool_call"` → looks for class `ToolCallReward` or `ToolReward`
-   - CamelCase class names, snake_case type names
-
-2. **Auto-Discovery**:
-   - Searches registered module paths
-   - Imports and inspects classes
-   - Caches results for performance
-
-3. **Graceful Fallback**:
-   - If `MathReward` not found → use `BaseReward`
-   - Base classes provide sensible defaults
-
-4. **Metaclass Magic**:
-   - Auto-registration on class definition
-   - Validation at class creation time
-   - No explicit registration needed
-
-## Design Patterns Used
-
-1. **Convention over Configuration**: Names determine behavior
-2. **Registry Pattern**: Central registration system
-3. **Strategy Pattern**: Interchangeable algorithms
-4. **Factory Pattern**: Dynamic object creation
-5. **Metaclass Pattern**: Class creation hooks
-6. **Decorator Pattern**: Optional function-based API
-
-## Advanced Features
-
-### 1. Composite Discovery
+### Using the Bridge (Recommended)
 
 ```python
-# Get all components at once
-components = discover_all_for_type("math")
+from mlx_grpo.trainer.type_system_v2 import create_v2_coordinator, v2_reward_adapter
 
-reward = components['reward']      # MathReward instance
-strategy = components['generation']  # MathGenerationStrategy instance
-loader = components['loader']        # MathDataLoader instance
+# Create coordinator with all built-in types
+coordinator = create_v2_coordinator(tokenizer)
+
+# Get a reward function matching the old pipeline signature
+reward_func = v2_reward_adapter(coordinator)
+
+# Use it - dispatches to type-specific rewards automatically
+scores = reward_func(prompts, completions, answers, types=["tool_call", "mcq", "general_qna"])
 ```
 
-### 2. Custom Discovery Paths
+### Using Components Directly
 
 ```python
-from mlx_grpo.trainer.type_system.auto_discovery import register_discovery_path
+from mlx_grpo.trainer.type_system_v2 import TypeCoordinator, auto_register_builtin_types
 
-# Add your own module path
-register_discovery_path("reward", "my_company.custom_rewards")
-```
+coordinator = TypeCoordinator()
+auto_register_builtin_types(coordinator, tokenizer)
 
-### 3. Override Discovery
-
-```python
-# Put your custom class earlier in search path
-# It will be found first and used instead of built-in
-```
-
-## Adding a New Type (Complete Example)
-
-Let's add support for `type='translation'`:
-
-### Step 1: Create the Reward
-
-```python
-# File: mlx_grpo/trainer/type_system/rewards/translation_reward.py
-
-from ..auto_discovery import BaseReward
-
-class TranslationReward(BaseReward):
-    """
-    Reward for translation tasks.
-    Auto-discovered for type='translation'.
-    """
-
-    def compute(self, prompts, completions, answers, types=None):
-        from some_library import calculate_bleu
-
-        scores = []
-        for completion, answer in zip(completions, answers):
-            bleu = calculate_bleu(completion, answer)
-            scores.append(bleu / 100.0)  # Normalize to [0, 1]
-
-        return scores
-
-    def get_weight(self):
-        return 0.8  # High weight for translation accuracy
-```
-
-### Step 2: Create the Strategy
-
-```python
-# File: mlx_grpo/trainer/type_system/generation/translation_strategy.py
-
-from ..auto_discovery import BaseGenerationStrategy
-
-class TranslationGenerationStrategy(BaseGenerationStrategy):
-    """
-    Generation strategy for translation.
-    Auto-discovered for type='translation'.
-    """
-
-    def get_max_length(self):
-        return 512  # Translations are usually similar length to source
-
-    def get_temperature(self):
-        return 0.6  # Lower temperature for more deterministic translation
-
-    def use_two_phase(self):
-        return False  # Direct translation, no thinking phase
-```
-
-### Step 3: Use It!
-
-```json
-{
-  "prompt": "Translate to French: Hello, how are you?",
-  "answer": "Bonjour, comment allez-vous ?",
-  "type": "translation"
-}
-```
-
-That's it! The system automatically:
-- Discovers `TranslationReward`
-- Discovers `TranslationGenerationStrategy`
-- Applies optimal settings for translation tasks
-
-## Comparison: Old vs New
-
-### Old Way (Manual Configuration)
-
-```python
-# train.py
-args = parse_args()
-args.reward_functions = ["r1_correctness", "r1_format"]
-args.reward_weights = [0.7, 0.3]
-args.max_completion_length = 512
-args.temperature = 0.8
-args.two_phase = False
-# ... 20+ more parameters
-```
-
-### New Way (Auto-Discovery)
-
-```python
-# train.py
-dataset = load_typed_dataset("data.jsonl", tokenizer)
-# Done! Optimal config applied based on data types
-```
-
-## Migration Guide
-
-### From Old Registry System
-
-The new auto-discovery system **coexists** with the old Protocol-based registry:
-
-```python
-# Old way (still works)
-from mlx_grpo.trainer.type_system import get_type_handler
-handler = get_type_handler("math")
-config = handler.get_reward_config()
-
-# New way (simpler!)
-from mlx_grpo.trainer.type_system.auto_discovery import get_reward_for_type
-reward = get_reward_for_type("math")
+# Get type-specific reward
+reward = coordinator.get_reward("tool_call")
 scores = reward.compute(prompts, completions, answers)
+
+# Get generation config
+generator = coordinator.get_generator("mcq")
+config = generator.get_generation_config()
+print(config.max_length)       # 1536
+print(config.two_phase)        # True
+print(config.enforce_thinking) # True
 ```
 
-Choose whichever fits your needs!
+## Creating a Custom Type
 
-## Performance
+Implement three classes - one for each concern:
 
-- **Lazy Loading**: Classes only imported when first requested
-- **LRU Caching**: Discovery results cached (128 entries)
-- **Fast Lookups**: Dict-based registry after discovery
-- **Minimal Overhead**: <1ms per discovery on first call, ~0.001ms on cached calls
+```python
+from mlx_grpo.trainer.type_system_v2 import BaseReward, BaseDatasetLoader, BaseRolloutGenerator
 
-## Testing
+class CodeReward(BaseReward):
+    type_name = "code"
 
-```bash
-# Run auto-discovery demo
-python examples/demo_auto_discovery.py
+    def get_component_weights(self):
+        return {"correctness": 0.5, "style": 0.3, "efficiency": 0.2}
 
-# Run tool calling demo
-python examples/demo_type_system.py
+    def validate_completion(self, completion, type_info=None):
+        if not completion.strip():
+            return False, "Empty completion"
+        return True, None
 
-# Test reward functions
-python tests/test_tool_calling_rewards.py
+    def compute_single(self, prompt, completion, answer, type_info=None):
+        # Your scoring logic
+        ...
+
+class CodeDatasetLoader(BaseDatasetLoader):
+    type_name = "code"
+
+    def validate_sample(self, sample):
+        if "prompt" not in sample or "answer" not in sample:
+            return False, "Missing fields"
+        return True, None
+
+    def preprocess_sample(self, sample):
+        return sample
+
+    def get_system_prompt(self, sample):
+        return "You are a coding assistant."
+
+class CodeRolloutGenerator(BaseRolloutGenerator):
+    type_name = "code"
+
+    def get_generation_config(self):
+        return GenerationConfig(max_length=1024, temperature=0.7)
+
+    def apply_curriculum(self, answer, ratio):
+        return answer[:int(len(answer) * ratio)]
+
+    def is_generation_complete(self, text, phase):
+        return True, "complete"
 ```
 
-## FAQ
+Register with the coordinator:
 
-**Q: What if I name my class wrong?**
-A: It falls back to base class. Check logs for discovery attempts.
+```python
+coordinator.register(
+    "code",
+    reward=CodeReward(),
+    loader=CodeDatasetLoader(tokenizer),
+    generator=CodeRolloutGenerator(),
+)
+```
 
-**Q: Can I override built-in types?**
-A: Yes! Put your module earlier in discovery paths.
+## Event Bus
 
-**Q: Do I need to register anything?**
-A: No! Just create the class and it's auto-discovered.
+Cross-cutting concerns (logging, metrics) without coupling:
 
-**Q: What if multiple types in one dataset?**
-A: The system detects dominant type or merges configurations.
+```python
+from mlx_grpo.trainer.type_system_v2 import EventBus, REWARD_COMPUTED, REWARD_INVALID
 
-**Q: Can I use functions instead of classes?**
-A: Yes! See decorator-based API in `tool_reward.py`.
+bus = EventBus()
 
-## Best Practices
+def on_reward(event):
+    print(f"Reward computed: {event.data}")
 
-1. **One class per file** matching type name
-2. **Extend base classes** for proper discovery
-3. **Override only what you need** - base classes have good defaults
-4. **Use descriptive type names** - they become class names
-5. **Test with built-in types first** - learn the patterns
+bus.subscribe(REWARD_COMPUTED, on_reward)
+bus.subscribe(REWARD_INVALID, lambda e: print(f"Invalid: {e.data['reason']}"))
+```
 
-## Future Extensions
+### Event Types
 
-Easy to add:
-- `MultiModalReward` for image+text tasks
-- `ConversationGenerationStrategy` for dialogue
-- `StructuredDataLoader` for JSON/CSV
-- Custom reward combinations
-- Type-specific curriculum strategies
+| Event | Published By | Data |
+|-------|-------------|------|
+| `sample.validated` | DatasetLoader | `{valid, reason}` |
+| `sample.loaded` | DatasetLoader | `{count}` |
+| `reward.computed` | Reward | `{mean_score, count}` |
+| `reward.invalid` | Reward | `{reason, completion_preview}` |
+| `generation.started` | Generator | `{config}` |
+| `generation.completed` | Generator | `{num_results}` |
+| `type.registered` | Coordinator | `{type_name, components}` |
 
-**Just create the class - the system does the rest!**
+## Type Normalization
 
-## Credits
+All type aliases are automatically normalized:
 
-Built with:
-- Python 3.10+ (Protocols, TypeAlias, Advanced typing)
-- Metaclasses (Auto-registration)
-- importlib (Dynamic imports)
-- functools (LRU caching)
-- ABCMeta (Graceful inheritance)
+```python
+from mlx_grpo.trainer.type_system_v2 import normalize_type
 
----
+normalize_type("function_call")   # → "tool_call"
+normalize_type("exam")            # → "mcq"
+normalize_type("math")            # → "general_qna"
+normalize_type(None)              # → "general_qna"
+normalize_type({"type": "tool"})  # → "tool_call"
+```
 
-**Convention over configuration. Simplicity over complexity. Power through elegance.**
+## Generation Pipeline
+
+Each type has a distinct generation workflow managed by its generator:
+
+| Type | Max Length | Temperature | Two-Phase | Phase Recovery | Curriculum |
+|------|-----------|-------------|-----------|----------------|------------|
+| `tool_call` | 256 | 0.7 | No | No | Function scaffolding |
+| `mcq` | 1536 | 0.85 | Yes | Yes (exam-specific) | Thinking prefix |
+| `general_qna` | 1024 | 0.8 | Yes | Yes (standard) | Thinking prefix |
+
+### ThinkingBasedGenerator
+
+MCQ and GeneralQNA share the `ThinkingBasedGenerator` intermediate class:
+- **Curriculum**: Extracts `<think>...</think>` content and provides proportional prefix
+- **Completeness**: Checks for `</think>` + answer content
+- **Phase Recovery**: Injects `</think>\n\boxed{` for incomplete outputs
+- **Token Masking**: Injected tokens tracked for loss exclusion
+
+MCQ overrides `check_incomplete()` with exam-specific recovery (probabilistic, boxed injection).
+
+### Type-Dispatched Generation
+
+When `TypeCoordinator` is provided, `generate_grpo()` delegates:
+- **Curriculum** → `generator.apply_curriculum(answer, ratio)` per type
+- **Phase recovery decision** → `generator.needs_phase_recovery()` per type
+- **Incompleteness checking** → `generator.check_incomplete(...)` per type
+
+## Pipeline Integration
+
+The v2 type system is wired into the training pipeline automatically:
+
+1. `train.py` creates a `TypeCoordinator` via `create_v2_coordinator(tokenizer)`
+2. Registers `type_aware_strict` / `type_aware_reward` as backward-compatible aliases
+3. Passes coordinator to `train_grpo()` as `type_coordinator`
+4. `train_grpo()` prepends the v2 type-dispatched reward (unless already present)
+5. `generate_grpo()` uses coordinator for type-dispatched curriculum and phase recovery
+6. Samples are grouped by type and scored by the appropriate reward
+
+No configuration needed - it works out of the box.

@@ -1610,6 +1610,13 @@ def extract_answer_from_completion(completion: str, for_exam: bool = True) -> Op
     if not completion:
         return None
 
+    # FIX: Detect incomplete think blocks - if completion opens <think> but
+    # never closes it, the model was truncated mid-reasoning with no answer.
+    lower_comp = completion.lower().strip()
+    if lower_comp.startswith("<think>") and "</think>" not in lower_comp:
+        _logger.debug("extract_answer_from_completion: incomplete think block, no answer")
+        return None
+
     # Priority 1: \\boxed{} - THE PREFERRED FORMAT
     boxed_answer = extract_boxed_answer(completion)
     if boxed_answer:
@@ -1720,8 +1727,9 @@ def extract_answer_from_completion(completion: str, for_exam: bool = True) -> Op
 
     # Find standalone single letters that aren't common words
     # Use word boundaries and ensure it's truly standalone
+    # FIX: Exclude apostrophe-adjacent letters (contractions: it's, don't, I'm)
     letters = []
-    for match in re.finditer(r"(?<![a-zA-Z])([A-Za-z])(?![a-zA-Z])", tail):
+    for match in re.finditer(r"(?<![a-zA-Z'])([A-Za-z])(?![a-zA-Z'])", tail):
         letter = match.group(1)
         # Check context - is this letter part of a word?
         start = max(0, match.start() - 3)
@@ -2327,7 +2335,12 @@ def compute_accuracy_reward(
     """
     # Always try to extract the model's answer for debugging
     # Determine exam style first for proper extraction
+    #
+    # FIX: When ground_truth is a full text (with <think>...</think> and \boxed{}),
+    # extract the actual answer from it first, then use that for exam-style detection.
     is_exam_style = False
+    effective_ground_truth = ground_truth
+
     if possible_boxed_answers:
         for ans in possible_boxed_answers:
             if ans is not None and re.match(r"^[A-Za-z\s,&]+$", str(ans).replace("and", "")):
@@ -2337,6 +2350,18 @@ def compute_accuracy_reward(
         gt_str = str(ground_truth)
         if re.match(r"^[A-Za-z\s,&]+$", gt_str.replace("and", "")):
             is_exam_style = True
+        else:
+            # Ground truth is a full text — extract the answer from it
+            gt_extracted = extract_answer_from_completion(gt_str, for_exam=True)
+            if gt_extracted is None:
+                gt_extracted = extract_boxed_answer(gt_str)
+            if gt_extracted:
+                effective_ground_truth = gt_extracted
+                _logger.debug(
+                    f"Extracted answer from full ground_truth: '{gt_extracted}'"
+                )
+                if re.match(r"^[A-Za-z\s,&]+$", gt_extracted.replace("and", "")):
+                    is_exam_style = True
 
     # Extract answer from completion
     model_answer = extract_answer_from_completion(completion, for_exam=is_exam_style)
@@ -2445,7 +2470,7 @@ def compute_accuracy_reward(
 
     # Fallback to ground_truth comparison
     # Use 'is None' to properly handle 0 and other falsy values
-    if ground_truth is None:
+    if effective_ground_truth is None:
         return 0.5, {
             "model_answer": model_answer,
             "correct_answer": None,
@@ -2453,15 +2478,18 @@ def compute_accuracy_reward(
             "reason": "no_ground_truth",
         }
 
+    # FIX: Use effective_ground_truth (extracted answer) instead of raw ground_truth
     correct_answer = (
-        normalize_ground_truth(ground_truth) if is_exam_style else str(ground_truth).strip()
+        normalize_ground_truth(effective_ground_truth)
+        if is_exam_style
+        else str(effective_ground_truth).strip()
     )
     model_normalized = normalize_answer(model_answer) if is_exam_style else model_answer.strip()
 
     # Exact match
     if (
         model_normalized == correct_answer
-        or model_answer.strip().lower() == str(ground_truth).strip().lower()
+        or model_answer.strip().lower() == str(effective_ground_truth).strip().lower()
     ):
         return 1.0, {
             "model_answer": model_answer,

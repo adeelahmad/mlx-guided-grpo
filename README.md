@@ -136,8 +136,9 @@ Automatic checkpointing and resume. Metal GPU crashes? Training continues.
 
 - **Training**: GRPO, DR-GRPO, BNPO loss variants
 - **Adapters**: LoRA, DoRA, Full fine-tuning
+- **Type System**: Extensible type-aware rewards for tool calling, MCQ, and general Q&A ([docs](TYPE_SYSTEM.md))
 - **Memory**: Gradient checkpointing, cache management
-- **Rewards**: Hierarchical rewards, custom reward functions
+- **Rewards**: Type-dispatched rewards, custom reward functions
 - **Logging**: WandB integration, rollout logging
 - **Monitoring**: Threshold-based early stopping
 
@@ -325,6 +326,7 @@ Phase 2: Inject "</think>\n\boxed{" → Continue generation → "4}"
 | Full CLI Reference | [docs/cli.md](docs/cli.md) |
 | Training Arguments | [docs/arguments.md](docs/arguments.md) |
 | Custom Rewards | [docs/rewards.md](docs/rewards.md) |
+| Type System | [TYPE_SYSTEM.md](TYPE_SYSTEM.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | API Reference | [docs/api.md](docs/api.md) |
 

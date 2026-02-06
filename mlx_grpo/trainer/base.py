@@ -29,6 +29,9 @@ __all__ = [
     "grad_checkpoint",
     "ModelT",
     "T",
+    "normalize_sample_type",
+    "is_tool_call_type",
+    "is_exam_type",
 ]
 
 # Type variables for generics
@@ -211,3 +214,117 @@ RewardFunc = Callable[[list[str], list[str], list[str], list[str] | None], list[
 
 # Loss function type alias
 LossFunc = Callable[[nn.Module, mx.array, mx.array], tuple[mx.array, mx.array]]
+
+
+# =============================================================================
+# Type System Utilities
+# =============================================================================
+
+
+def normalize_sample_type(sample_type: str | dict | None) -> str | None:
+    """Normalize sample type to canonical form.
+
+    Handles various type formats and aliases:
+    - String types: "tool", "function", "function_calling" -> "tool_call"
+    - Dict types: {"type": "tool", ...} -> extracts and normalizes
+    - None: returns None
+
+    Args:
+        sample_type: Raw type from dataset (string, dict, or None)
+
+    Returns:
+        Normalized type string or None
+
+    Examples:
+        >>> normalize_sample_type("tool")
+        "tool_call"
+        >>> normalize_sample_type("FUNCTION_CALLING")
+        "tool_call"
+        >>> normalize_sample_type({"type": "tool", "other": "data"})
+        "tool_call"
+        >>> normalize_sample_type("math")
+        "math"
+    """
+    if sample_type is None:
+        return None
+
+    # Extract type string from dict
+    if isinstance(sample_type, dict):
+        sample_type = sample_type.get("type")
+        if sample_type is None:
+            return None
+
+    # Convert to string and lowercase
+    type_str = str(sample_type).lower().strip()
+
+    if not type_str:
+        return None
+
+    # Canonical type mappings
+    TYPE_ALIASES = {
+        # Tool calling aliases
+        "tool": "tool_call",
+        "function": "tool_call",
+        "function_calling": "tool_call",
+        "functioncalling": "tool_call",
+        "func": "tool_call",
+        "tool_use": "tool_call",
+        "api_call": "tool_call",
+        # Exam aliases
+        "aime": "exam",
+        "math500": "exam",
+        "exam_math": "exam",
+        "exam_aime": "exam",
+        "exam_olympiad": "exam",
+        "olympiad": "exam",
+        "mcq": "exam",
+        "multiple_choice": "exam",
+    }
+
+    return TYPE_ALIASES.get(type_str, type_str)
+
+
+def is_tool_call_type(sample_type: str | dict | None) -> bool:
+    """Check if sample type represents a tool/function calling task.
+
+    Args:
+        sample_type: Raw type from dataset
+
+    Returns:
+        True if this is a tool calling task, False otherwise
+
+    Examples:
+        >>> is_tool_call_type("tool")
+        True
+        >>> is_tool_call_type("FUNCTION_CALLING")
+        True
+        >>> is_tool_call_type({"type": "tool"})
+        True
+        >>> is_tool_call_type("math")
+        False
+    """
+    normalized = normalize_sample_type(sample_type)
+    return normalized == "tool_call"
+
+
+def is_exam_type(sample_type: str | dict | None) -> bool:
+    """Check if sample type represents an exam-style task.
+
+    Args:
+        sample_type: Raw type from dataset
+
+    Returns:
+        True if this is an exam task, False otherwise
+
+    Examples:
+        >>> is_exam_type("exam")
+        True
+        >>> is_exam_type("aime")
+        True
+        >>> is_exam_type("math500")
+        True
+        >>> is_exam_type("tool_call")
+        False
+    """
+    normalized = normalize_sample_type(sample_type)
+    return normalized == "exam"

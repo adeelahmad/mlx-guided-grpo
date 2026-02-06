@@ -19,6 +19,7 @@ from mlx_lm.generate import batch_generate
 from mlx_lm.sample_utils import make_sampler
 from tqdm import tqdm
 
+from ..base import normalize_sample_type, is_tool_call_type
 from .curriculum import (
     build_curriculum_prefix,
     smart_truncate_completion,
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from typing import Any
 
     import mlx.nn as nn
+    from ..type_system_v2.coordinator import TypeCoordinator
 
 __all__ = [
     "generate_grpo",
@@ -64,6 +66,8 @@ def generate_grpo(
     truncation_keep_start_ratio: float = 0.3,
     truncation_keep_end_ratio: float = 0.5,
     generation_sub_batch_size: int = 1,  # Generate this many at a time to avoid GPU timeout
+    exam_phase_recovery_ratio: float = 0.5,  # Ratio of exam samples that get phase 2 recovery
+    type_coordinator: TypeCoordinator | None = None,  # V2 type coordinator for type-dispatched generation
 ) -> tuple[list[mx.array], list[str], list[int], list[bool], list[float], list[int]]:
     """Generate completions with optional two-phase recovery for incomplete outputs.
 
@@ -109,6 +113,8 @@ def generate_grpo(
         truncation_brevity_marker: Marker for truncation
         truncation_keep_start_ratio: Ratio to keep from start
         truncation_keep_end_ratio: Ratio to keep from end
+        exam_phase_recovery_ratio: Ratio of incomplete exam samples that get phase 2 recovery.
+            Only applies when </think> is missing. Injected tokens are masked from loss.
 
     Returns:
         Tuple of:
@@ -145,13 +151,16 @@ def generate_grpo(
             except ValueError:
                 use_eos_token = False
 
-        sampler = make_sampler(
+        default_sampler = make_sampler(
             temperature,
             top_p=0.95,
             min_p=0.0,
             min_tokens_to_keep=1,
             top_k=20,
         )
+
+        # Cache per-type samplers to avoid recreating for each sample
+        _type_sampler_cache: dict[float, Any] = {temperature: default_sampler}
 
         # Setup multi-curriculum rollout scaffold levels
         if multi_curriculum_rollout and curriculum_scaffold_levels is None:
@@ -175,6 +184,7 @@ def generate_grpo(
             batched_targets: list[str | None] = []
             batched_scaffold_ratios: list[float] = []
             batched_original_prompts: list[Any] = []
+            batched_gen_configs: list[Any] = []  # Per-sample GenerationConfig from type coordinator
 
             # Determine effective max_tokens for this batch
             batch_has_cross_sampled = False
@@ -204,14 +214,20 @@ def generate_grpo(
                     prefix_text = ""
                     scaffold_ratio = 0.0
 
-                    # Check if exam-type sample
+                    # Check type information
                     is_exam = False
+                    sample_type = None
                     if type_info is not None and prompt_idx < len(type_info):
                         prompt_type_info = type_info[prompt_idx]
                         if isinstance(prompt_type_info, dict):
                             is_exam = prompt_type_info.get("is_exam", False)
+                            sample_type = prompt_type_info.get("type")
                         elif isinstance(prompt_type_info, str):
                             is_exam = "exam" in prompt_type_info.lower()
+                            sample_type = prompt_type_info
+
+                    # Normalize type using centralized function
+                    sample_type = normalize_sample_type(sample_type)
 
                     # Skip scaffolding for exam samples
                     if not is_exam:
@@ -219,15 +235,36 @@ def generate_grpo(
                             scaffold_ratio = curriculum_scaffold_levels[
                                 k % len(curriculum_scaffold_levels)
                             ]
-                            prefix_text = build_curriculum_prefix(
-                                target_completion=target,
-                                ratio=scaffold_ratio,
-                                think_start=think_start,
-                                think_end=think_end,
-                                by_lines=True,
-                                truncation_mode=curriculum_truncation_mode,
-                                preserve_intuition=curriculum_preserve_intuition,
-                            )
+
+                            # Use type-dispatched curriculum via coordinator
+                            if type_coordinator is not None:
+                                from ..type_system_v2.coordinator import normalize_type
+                                gen = type_coordinator.get_generator(
+                                    normalize_type(sample_type)
+                                )
+                                prefix_text = gen.apply_curriculum(
+                                    answer=target,
+                                    ratio=scaffold_ratio,
+                                )
+                            elif is_tool_call_type(sample_type):
+                                # Legacy fallback for tool calls
+                                from ..type_system_v2.generators.tool_call import ToolCallRolloutGenerator
+                                _tc_gen = ToolCallRolloutGenerator()
+                                prefix_text = _tc_gen.apply_curriculum(
+                                    answer=target,
+                                    ratio=scaffold_ratio,
+                                )
+                            else:
+                                # Legacy fallback for thinking types
+                                prefix_text = build_curriculum_prefix(
+                                    target_completion=target,
+                                    ratio=scaffold_ratio,
+                                    think_start=think_start,
+                                    think_end=think_end,
+                                    by_lines=True,
+                                    truncation_mode=curriculum_truncation_mode,
+                                    preserve_intuition=curriculum_preserve_intuition,
+                                )
                         elif curriculum_prefixes is not None and prompt_idx < len(
                             curriculum_prefixes
                         ):
@@ -248,6 +285,16 @@ def generate_grpo(
                     batched_scaffold_ratios.append(scaffold_ratio)
                     batched_original_prompts.append(prompt)
 
+                    # Track per-sample GenerationConfig from type coordinator
+                    if type_coordinator is not None:
+                        from ..type_system_v2.coordinator import normalize_type
+                        gen = type_coordinator.get_generator(
+                            normalize_type(sample_type)
+                        )
+                        batched_gen_configs.append(gen.get_generation_config())
+                    else:
+                        batched_gen_configs.append(None)
+
             mx.synchronize()
             mx.clear_cache()
 
@@ -260,13 +307,38 @@ def generate_grpo(
             for sub_start in range(0, len(batched_prompts), sub_batch_sz):
                 sub_end = min(sub_start + sub_batch_sz, len(batched_prompts))
                 sub_prompts = batched_prompts[sub_start:sub_end]
+                sub_configs = batched_gen_configs[sub_start:sub_end]
+
+                # Use per-type config for max_tokens and sampler when available
+                if any(c is not None for c in sub_configs):
+                    # Use max of type-specific max_lengths in this sub-batch
+                    type_max = max(
+                        (c.max_length for c in sub_configs if c is not None),
+                        default=batch_max_tokens,
+                    )
+                    sub_max_tokens = min(type_max, batch_max_tokens) if not smart_truncation_enabled else batch_max_tokens
+
+                    # Use temperature from first type config in sub-batch
+                    type_temp = next(
+                        (c.temperature for c in sub_configs if c is not None),
+                        temperature,
+                    )
+                    if type_temp not in _type_sampler_cache:
+                        _type_sampler_cache[type_temp] = make_sampler(
+                            type_temp, top_p=0.95, min_p=0.0,
+                            min_tokens_to_keep=1, top_k=20,
+                        )
+                    sub_sampler = _type_sampler_cache[type_temp]
+                else:
+                    sub_max_tokens = batch_max_tokens
+                    sub_sampler = default_sampler
 
                 sub_results = batch_generate(
                     model=model,
                     tokenizer=tokenizer,
                     prompts=sub_prompts,
-                    max_tokens=batch_max_tokens,
-                    sampler=sampler,
+                    max_tokens=sub_max_tokens,
+                    sampler=sub_sampler,
                     verbose=True,
                 )
 
@@ -331,19 +403,55 @@ def generate_grpo(
                 all_scaffold_token_counts.append(scaffold_token_count)
 
                 # Check for two-phase recovery
-                if enforce_thinking and not smart_truncated:
-                    is_incomplete, fixed_prefix, injected_count = _check_incomplete_completion(
-                        full_completion_text=full_completion_text,
-                        scaffold_ratio=scaffold_ratio,
-                        target=target,
-                        type_info=type_info,
-                        prompt_idx=batched_indices[idx],
-                        think_start=think_start,
-                        think_end=think_end,
-                        answer_end=answer_end,
-                        continuation_force_answer_ratio=continuation_force_answer_ratio,
-                        tokenizer=tokenizer,
+                # Resolve type for this sample
+                sample_type = None
+                prompt_type_info_raw = None
+                if type_info is not None and batched_indices[idx] < len(type_info):
+                    prompt_type_info_raw = type_info[batched_indices[idx]]
+                    sample_type = normalize_sample_type(prompt_type_info_raw)
+
+                # Decide whether to use phase recovery via coordinator or legacy
+                if type_coordinator is not None and not smart_truncated:
+                    from ..type_system_v2.coordinator import normalize_type
+                    gen = type_coordinator.get_generator(normalize_type(sample_type))
+                    use_phase_recovery = gen.needs_phase_recovery()
+                else:
+                    # Legacy: skip for tool calls
+                    use_phase_recovery = (
+                        enforce_thinking
+                        and not smart_truncated
+                        and not is_tool_call_type(sample_type)
                     )
+
+                if use_phase_recovery:
+                    # Use coordinator-dispatched check_incomplete if available
+                    if type_coordinator is not None:
+                        from ..type_system_v2.coordinator import normalize_type
+                        gen = type_coordinator.get_generator(normalize_type(sample_type))
+                        is_incomplete, fixed_prefix, injected_count = gen.check_incomplete(
+                            text=full_completion_text,
+                            scaffold_ratio=scaffold_ratio,
+                            target=target,
+                            type_info=prompt_type_info_raw,
+                            tokenizer=tokenizer,
+                            continuation_force_answer_ratio=continuation_force_answer_ratio,
+                            curriculum_preserve_intuition=curriculum_preserve_intuition,
+                        )
+                    else:
+                        # Legacy path
+                        is_incomplete, fixed_prefix, injected_count = _check_incomplete_completion(
+                            full_completion_text=full_completion_text,
+                            scaffold_ratio=scaffold_ratio,
+                            target=target,
+                            type_info=type_info,
+                            prompt_idx=batched_indices[idx],
+                            think_start=think_start,
+                            think_end=think_end,
+                            answer_end=answer_end,
+                            continuation_force_answer_ratio=continuation_force_answer_ratio,
+                            tokenizer=tokenizer,
+                            exam_phase_recovery_ratio=exam_phase_recovery_ratio,
+                        )
 
                     if is_incomplete and fixed_prefix:
                         current_idx = len(all_completions) - 1
@@ -414,6 +522,7 @@ def _check_incomplete_completion(
     answer_end: str,
     continuation_force_answer_ratio: float,
     tokenizer: Any = None,
+    exam_phase_recovery_ratio: float = 0.5,
 ) -> tuple[bool, str | None, int]:
     """Check if a completion needs two-phase recovery.
 
@@ -453,22 +562,34 @@ def _check_incomplete_completion(
             return True, fixed_prefix, injected_count
 
         elif has_think_start and not has_think_end:
+            # Apply exam_phase_recovery_ratio: only recover this fraction of
+            # incomplete exam samples (missing </think>). The rest are left as-is,
+            # giving the model a learning signal for both truncated and recovered outputs.
+            if random.random() >= exam_phase_recovery_ratio:
+                return False, None, 0
+
             think_start_pos = full_completion_text.find(think_start)
             model_thinking = full_completion_text[think_start_pos + len(think_start) :].rstrip()
             prefix_before_think = (
                 full_completion_text[:think_start_pos] if think_start_pos > 0 else ""
             )
 
-            # Truncate thinking to leave room for closing tags (reserve ~20 tokens worth)
-            # This prevents Phase 2 truncation from cutting off the tags we're adding
-            max_thinking_chars = max(100, len(model_thinking) - 80)  # Leave ~80 chars for tags
+            # Truncate thinking to leave room for closing tags (reserve ~80 chars for tags)
+            max_thinking_chars = max(100, len(model_thinking) - 80)
             if len(model_thinking) > max_thinking_chars:
-                model_thinking = model_thinking[:max_thinking_chars].rstrip() + "\n...[truncated]"
+                model_thinking = model_thinking[:max_thinking_chars].rstrip()
 
-            # Injected content: closing tags (the model_thinking is from model, not injected)
-            injected_text = f"\n{think_end}\n\n\\boxed{{"
+            # Injected content: truncation marker + closing tags + boxed opener
+            # These tokens are masked from loss so the model only learns from
+            # its own thinking and the Phase 2 continuation inside \boxed{...}
+            injected_text = f"\n... {think_end}\n\\boxed{{"
             fixed_prefix = f"{prefix_before_think}{think_start}{model_thinking}{injected_text}"
             injected_count = len(tokenizer.encode(injected_text)) if tokenizer else 0
+            tqdm.write(
+                f"    [EXAM RECOVERY] prompt={prompt_idx}: "
+                f"Truncated thinking + injected '... {think_end}\\n\\boxed{{' "
+                f"({injected_count} masked tokens)"
+            )
             return True, fixed_prefix, injected_count
 
         elif not has_think_start:

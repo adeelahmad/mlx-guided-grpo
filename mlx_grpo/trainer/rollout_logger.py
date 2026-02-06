@@ -139,9 +139,11 @@ class RolloutLogger:
         self,
         config: RolloutLoggerConfig,
         adapter_file: Optional[str] = None,
+        training_args: Optional[Any] = None,  # Full GRPOTrainingArgs for wandb config
     ):
         self.config = config
         self.adapter_file = adapter_file
+        self.training_args = training_args
 
         if config.output_dir:
             self.output_dir = Path(config.output_dir)
@@ -209,11 +211,19 @@ class RolloutLogger:
                     resume_mode = "must"  # Must resume if we have an ID
                     logger.info(f"Resuming WandB run: {run_id}")
 
+                # Convert training args to dict for wandb
+                import dataclasses
+                config_dict = {}
+                if self.training_args is not None and dataclasses.is_dataclass(self.training_args):
+                    config_dict = dataclasses.asdict(self.training_args)
+                    logger.info(f"Sending {len(config_dict)} training config fields to WandB")
+
                 wandb.init(
                     project=self.config.wandb_project or "grpo-training",
                     name=self.config.wandb_run_name,
                     resume=resume_mode,
                     id=run_id,
+                    config=config_dict,  # Send all training config to wandb
                 )
 
                 # Save run ID for future resumes

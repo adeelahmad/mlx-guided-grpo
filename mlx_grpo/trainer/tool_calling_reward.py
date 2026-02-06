@@ -43,6 +43,30 @@ RE_PARAM = re.compile(
 # HELPER FUNCTIONS
 # =============================================================================
 
+def has_thinking_contamination(text: str) -> bool:
+    """
+    Check if text contains thinking tags or boxed answers.
+
+    Tool calls should NEVER contain these patterns. If they do,
+    the reward must be heavily penalized to teach the model
+    to generate ONLY function calls.
+
+    Args:
+        text: Text to check
+
+    Returns:
+        True if contamination detected (thinking tags or boxed answers)
+    """
+    contamination_patterns = [
+        "<think>",
+        "</think>",
+        "\\boxed{",
+    ]
+
+    text_lower = text.lower()
+    return any(pattern.lower() in text_lower for pattern in contamination_patterns)
+
+
 def extract_function_calls(text: str) -> list[dict[str, Any]]:
     """
     Extract function calls from text.
@@ -309,6 +333,9 @@ def tool_call_exact_match(
     Returns 1.0 only if the completion exactly matches the expected answer.
     Handles multi-line function calls and whitespace normalization.
 
+    CRITICAL: Returns 0.0 if completion contains <think> tags or \\boxed{} answers.
+    Tool calls must ONLY contain function calls, nothing else.
+
     Args:
         prompts: User prompts (not used)
         completions: Model-generated function calls
@@ -321,6 +348,11 @@ def tool_call_exact_match(
     scores = []
 
     for completion, answer in zip(completions, answers):
+        # CRITICAL: Zero reward for thinking contamination
+        if has_thinking_contamination(completion):
+            scores.append(0.0)
+            continue
+
         # Normalize whitespace and compare
         comp_norm = re.sub(r'\s+', ' ', completion.strip().lower())
         ans_norm = re.sub(r'\s+', ' ', answer.strip().lower())
@@ -344,6 +376,9 @@ def tool_call_function_match(
     Returns 1.0 if all expected function names are present,
     with partial credit for partial matches.
 
+    CRITICAL: Returns 0.0 if completion contains <think> tags or \\boxed{} answers.
+    Tool calls must ONLY contain function calls, nothing else.
+
     Args:
         prompts: User prompts (not used)
         completions: Model-generated function calls
@@ -356,6 +391,11 @@ def tool_call_function_match(
     scores = []
 
     for completion, answer in zip(completions, answers):
+        # CRITICAL: Zero reward for thinking contamination
+        if has_thinking_contamination(completion):
+            scores.append(0.0)
+            continue
+
         pred_calls = extract_function_calls(completion)
         exp_calls = extract_function_calls(answer)
 
@@ -395,6 +435,8 @@ def tool_call_parameter_match(
     Requires correct function name AND correct parameters.
     Provides partial credit for partially correct parameters.
 
+    CRITICAL: Returns 0.0 if completion contains <think> tags or \\boxed{} answers.
+
     Args:
         prompts: User prompts (not used)
         completions: Model-generated function calls
@@ -407,6 +449,11 @@ def tool_call_parameter_match(
     scores = []
 
     for completion, answer in zip(completions, answers):
+        # CRITICAL: Zero reward for thinking contamination
+        if has_thinking_contamination(completion):
+            scores.append(0.0)
+            continue
+
         pred_calls = extract_function_calls(completion)
         exp_calls = extract_function_calls(answer)
 
@@ -431,6 +478,8 @@ def tool_call_overall_quality(
     - Parameter correctness (40%)
     - Exact match bonus (20%)
 
+    CRITICAL: Returns 0.0 if completion contains <think> tags or \\boxed{} answers.
+
     Args:
         prompts: User prompts (not used)
         completions: Model-generated function calls
@@ -443,6 +492,11 @@ def tool_call_overall_quality(
     scores = []
 
     for completion, answer in zip(completions, answers):
+        # CRITICAL: Zero reward for thinking contamination
+        if has_thinking_contamination(completion):
+            scores.append(0.0)
+            continue
+
         pred_calls = extract_function_calls(completion)
         exp_calls = extract_function_calls(answer)
 
@@ -465,6 +519,8 @@ def tool_call_parseable(
     Returns 1.0 if the completion contains at least one parseable
     function call, else 0.0.
 
+    CRITICAL: Returns 0.0 if completion contains <think> tags or \\boxed{} answers.
+
     Args:
         prompts: User prompts (not used)
         completions: Model-generated function calls
@@ -477,6 +533,11 @@ def tool_call_parseable(
     scores = []
 
     for completion in completions:
+        # CRITICAL: Zero reward for thinking contamination
+        if has_thinking_contamination(completion):
+            scores.append(0.0)
+            continue
+
         pred_calls = extract_function_calls(completion)
         scores.append(1.0 if pred_calls else 0.0)
 
